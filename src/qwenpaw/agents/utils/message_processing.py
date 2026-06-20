@@ -226,6 +226,7 @@ async def _process_audio_block(
     index: int,
     local_path: str,
     block: dict,
+    source_url: Optional[str] = None,
 ) -> bool:
     """Handle an audio block according to the configured audio_mode.
 
@@ -280,7 +281,7 @@ async def _process_audio_block(
         return True
 
     # "auto": attempt transcription.
-    text = await transcribe_audio(local_path)
+    text = await transcribe_audio(local_path, source_url=source_url)
     if text:
         message_content[index] = {
             "type": "text",
@@ -332,6 +333,16 @@ async def _process_single_block(
             }
             source = block["source"]
 
+    source_url = None
+    if (
+        block_type == "audio"
+        and isinstance(source, dict)
+        and source.get("type") == "url"
+    ):
+        raw_url = source.get("url")
+        if isinstance(raw_url, str) and raw_url.startswith(("http://", "https://")):
+            source_url = raw_url
+
     try:
         local_path = await _process_single_file_block(source, filename)
 
@@ -345,6 +356,7 @@ async def _process_single_block(
                     index,
                     local_path,
                     block,
+                    source_url,
                 )
                 if handled:
                     # Audio was transcribed or sent natively; suppress the

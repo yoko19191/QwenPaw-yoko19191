@@ -260,7 +260,16 @@ def test_agent_scoped_workspace_transcription_provider_type_put_roundtrip(
     get_global_before = app_server.api_request("GET", global_path)
     assert get_global_before.status_code == 200, app_server.logs_tail()
     baseline = get_global_before.json().get("transcription_provider_type")
-    assert baseline in ("disabled", "whisper_api", "local_whisper")
+    assert baseline in (
+        "disabled",
+        "whisper_api",
+        "local_whisper",
+        "doubao_seedasr_stream",
+        "dashscope_qwen3_flash",
+        "dashscope_qwen3_filetrans",
+        "mimo_asr",
+        "sensevoice_local",
+    )
 
     alt = "whisper_api" if baseline == "disabled" else "disabled"
 

@@ -18,7 +18,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request, Form
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
@@ -703,7 +703,7 @@ async def put_audio_mode(
     summary="Get transcription provider type",
     description=(
         "Get the transcription provider type. "
-        'Values: "disabled", "whisper_api", "local_whisper".'
+        "See /workspace/transcription-config for supported values."
     ),
 )
 async def get_transcription_provider_type() -> dict:
@@ -723,7 +723,8 @@ async def get_transcription_provider_type() -> dict:
         "Set the transcription provider type. "
         '"disabled": no transcription; '
         '"whisper_api": remote Whisper endpoint; '
-        '"local_whisper": locally installed openai-whisper.'
+        '"local_whisper": locally installed openai-whisper; '
+        "additional ASR providers are also supported."
     ),
 )
 async def put_transcription_provider_type(
@@ -736,9 +737,13 @@ async def put_transcription_provider_type(
     ),
 ) -> dict:
     """Set the transcription provider type."""
+    from ...agents.utils.audio_transcription import (
+        SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES,
+    )
+
     raw = body.get("transcription_provider_type")
     provider_type = (str(raw) if raw is not None else "").strip().lower()
-    valid = {"disabled", "whisper_api", "local_whisper"}
+    valid = SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES
     if provider_type not in valid:
         raise HTTPException(
             status_code=400,
@@ -751,6 +756,158 @@ async def put_transcription_provider_type(
     config.agents.transcription_provider_type = provider_type
     save_config(config)
     return {"transcription_provider_type": provider_type}
+
+
+@router.get(
+    "/transcription-config",
+    summary="Get complete transcription settings",
+    description=(
+        "Return audio mode, active transcription provider, provider metadata, "
+        "sanitized provider configs, and local dependency status."
+    ),
+)
+async def get_transcription_config() -> dict:
+    """Get complete transcription settings for the console UI."""
+    from ...agents.utils.audio_transcription import (
+        build_transcription_settings_response,
+    )
+
+    return build_transcription_settings_response()
+
+
+def _merge_transcription_provider_config(
+    existing,
+    updates: dict,
+):
+    """Merge one provider config update, preserving secret values by default."""
+    from ...security.secret_store import encrypt_dict_fields
+
+    data = existing.model_dump(mode="json")
+    for key, value in updates.items():
+        if value is None:
+            continue
+        if key in {"api_key", "access_key"}:
+            if value:
+                data[key] = str(value)
+            continue
+        if key == "clear_api_key" and value:
+            data["api_key"] = ""
+            continue
+        if key == "clear_access_key" and value:
+            data["access_key"] = ""
+            continue
+        if key == "extra" and isinstance(value, dict):
+            merged = dict(data.get("extra") or {})
+            merged.update(value)
+            data["extra"] = merged
+            continue
+        if key in data:
+            data[key] = value
+
+    data = encrypt_dict_fields(data, frozenset({"api_key", "access_key"}))
+    from ...config.config import TranscriptionProviderConfig
+
+    return TranscriptionProviderConfig.model_validate(data)
+
+
+@router.put(
+    "/transcription-config",
+    summary="Update complete transcription settings",
+    description=(
+        "Update audio mode, active transcription provider, and provider "
+        "configs. Secret fields are encrypted and are never returned."
+    ),
+)
+async def put_transcription_config(
+    body: dict = Body(...),
+) -> dict:
+    """Update complete transcription settings."""
+    from ...agents.utils.audio_transcription import (
+        SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES,
+        build_transcription_settings_response,
+    )
+    from ...config.config import TranscriptionProviderConfig
+
+    config = load_config()
+
+    if "audio_mode" in body:
+        audio_mode = str(body.get("audio_mode") or "").strip().lower()
+        if audio_mode not in {"auto", "native"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid audio_mode. Must be one of: auto, native",
+            )
+        config.agents.audio_mode = audio_mode
+
+    if "transcription_provider_type" in body:
+        provider_type = str(
+            body.get("transcription_provider_type") or "",
+        ).strip().lower()
+        if provider_type not in SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid transcription_provider_type '{provider_type}'. "
+                    "Must be one of: "
+                    f"{', '.join(sorted(SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES))}"
+                ),
+            )
+        config.agents.transcription_provider_type = provider_type
+
+    if "transcription_provider_id" in body:
+        config.agents.transcription_provider_id = str(
+            body.get("transcription_provider_id") or "",
+        ).strip()
+
+    if "transcription_model" in body:
+        config.agents.transcription_model = str(
+            body.get("transcription_model") or "",
+        ).strip() or "whisper-1"
+
+    provider_configs = body.get("provider_configs")
+    if isinstance(provider_configs, dict):
+        for provider_type, updates in provider_configs.items():
+            if provider_type not in SUPPORTED_TRANSCRIPTION_PROVIDER_TYPES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid provider config key: {provider_type}",
+                )
+            if not isinstance(updates, dict):
+                continue
+            existing = config.agents.transcription_provider_configs.get(
+                provider_type,
+                TranscriptionProviderConfig(),
+            )
+            config.agents.transcription_provider_configs[provider_type] = (
+                _merge_transcription_provider_config(existing, updates)
+            )
+
+    save_config(config)
+    return build_transcription_settings_response()
+
+
+@router.post(
+    "/transcription-test",
+    summary="Test transcription provider connectivity",
+    description=(
+        "Test the current or supplied transcription provider configuration "
+        "with a short audio sample."
+    ),
+)
+async def post_transcription_test(
+    body: dict | None = Body(default=None),
+) -> dict:
+    """Test transcription provider connectivity."""
+    from ...agents.utils.audio_transcription import (
+        test_transcription_connection,
+    )
+
+    body = body or {}
+    return await test_transcription_connection(
+        provider_type=body.get("transcription_provider_type"),
+        provider_config=body.get("provider_config"),
+        source_url=body.get("source_url"),
+    )
 
 
 @router.get(
@@ -768,6 +925,18 @@ async def get_local_whisper_status() -> dict:
     )
 
     return check_local_whisper_available()
+
+
+@router.get(
+    "/local-asr-status",
+    summary="Check local ASR availability",
+    description="Return local Whisper and SenseVoice dependency status.",
+)
+async def get_local_asr_status() -> dict:
+    """Check local ASR dependencies."""
+    from ...agents.utils.audio_transcription import get_local_asr_status
+
+    return get_local_asr_status()
 
 
 @router.get(
@@ -827,6 +996,10 @@ async def put_transcription_provider(
 )
 async def post_transcribe_audio(
     file: UploadFile = File(..., description="Audio file to transcribe"),
+    source_url: str | None = Form(
+        default=None,
+        description="Optional original public audio URL for URL-only ASR.",
+    ),
 ) -> dict:
     """Transcribe uploaded audio file using configured Whisper provider."""
     from ...agents.utils.audio_transcription import transcribe_audio
@@ -880,7 +1053,7 @@ async def post_transcribe_audio(
         tmp_path = tmp.name
 
     try:
-        text = await transcribe_audio(tmp_path)
+        text = await transcribe_audio(tmp_path, source_url=source_url)
         if text is None:
             raise HTTPException(
                 status_code=500,

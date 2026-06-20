@@ -19,11 +19,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.agents.utils.audio_transcription import (
+    _doubao_packet,
+    _extract_text_from_payload,
     _get_configured_provider_creds,
     _get_manager,
+    _mime_type_for_path,
+    _parse_doubao_response,
     _url_for_provider,
+    check_sensevoice_available,
     check_local_whisper_available,
     get_configured_transcription_provider_id,
+    list_transcription_provider_types,
     list_transcription_providers,
     transcribe_audio,
 )
@@ -251,6 +257,31 @@ class TestCheckLocalWhisperAvailable:
             assert result["whisper_installed"] is False
 
 
+class TestProviderMetadata:
+    """Tests for provider metadata and local status helpers."""
+
+    def test_lists_new_provider_types(self):
+        with patch(
+            f"{_MOD}.check_local_whisper_available",
+            return_value={"available": False},
+        ), patch(
+            f"{_MOD}.check_sensevoice_available",
+            return_value={"available": False},
+        ):
+            ids = {item["id"] for item in list_transcription_provider_types()}
+        assert "doubao_seedasr_stream" in ids
+        assert "dashscope_qwen3_flash" in ids
+        assert "dashscope_qwen3_filetrans" in ids
+        assert "mimo_asr" in ids
+        assert "sensevoice_local" in ids
+
+    def test_sensevoice_missing_reports_install_hint(self):
+        with patch.dict("sys.modules", {"funasr": None}):
+            result = check_sensevoice_available()
+        assert result["available"] is False
+        assert "qwenpaw[sensevoice]" in result["install_hint"]
+
+
 # ---------------------------------------------------------------------------
 # _get_configured_provider_creds
 # ---------------------------------------------------------------------------
@@ -345,6 +376,35 @@ class TestTranscribeAudio:
             assert result == "transcribed text"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("provider_type", "target"),
+        [
+            ("doubao_seedasr_stream", "_transcribe_doubao_stream"),
+            ("dashscope_qwen3_flash", "_transcribe_openai_audio_chat"),
+            ("dashscope_qwen3_filetrans", "_transcribe_dashscope_filetrans"),
+            ("mimo_asr", "_transcribe_openai_audio_chat"),
+            ("sensevoice_local", "_transcribe_sensevoice"),
+        ],
+    )
+    async def test_new_provider_dispatch(self, provider_type, target):
+        mock_config = MagicMock()
+        mock_config.agents.transcription_provider_type = provider_type
+        with patch(
+            "qwenpaw.config.load_config",
+            return_value=mock_config,
+        ), patch(
+            f"{_MOD}.{target}",
+            new_callable=AsyncMock,
+            return_value="ok",
+        ) as mock_backend:
+            result = await transcribe_audio(
+                "/tmp/audio.wav",
+                source_url="https://example.com/a.wav",
+            )
+            assert result == "ok"
+            assert mock_backend.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_unknown_type_returns_none(self):
         mock_config = MagicMock()
         mock_config.agents.transcription_provider_type = "unknown"
@@ -354,6 +414,34 @@ class TestTranscribeAudio:
         ):
             result = await transcribe_audio("/tmp/audio.wav")
             assert result is None
+
+
+class TestResponseParsing:
+    """Tests for shared transcript extraction and Doubao packet parsing."""
+
+    def test_extracts_chat_completion_text(self):
+        payload = {"choices": [{"message": {"content": " hello "}}]}
+        assert _extract_text_from_payload(payload) == "hello"
+
+    def test_extracts_nested_result_text(self):
+        payload = {"result": {"text": "nested"}}
+        assert _extract_text_from_payload(payload) == "nested"
+
+    def test_doubao_packet_roundtrip(self):
+        packet = _doubao_packet(
+            0x9,
+            0x1,
+            b'{"result":{"text":"hi"}}',
+            sequence=1,
+            serialization=0x1,
+        )
+        seq, body = _parse_doubao_response(packet)
+        assert seq == 1
+        assert body["result"]["text"] == "hi"
+
+    def test_audio_mime_type_uses_provider_supported_values(self):
+        assert _mime_type_for_path("sample.wav") == "audio/wav"
+        assert _mime_type_for_path("sample.mp3") == "audio/mpeg"
 
 
 # ---------------------------------------------------------------------------

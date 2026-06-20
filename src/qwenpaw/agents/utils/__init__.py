@@ -15,8 +15,11 @@ This package provides utilities for agent operations:
 
 # Audio transcription
 from .audio_transcription import (
+    check_sensevoice_available,
     check_local_whisper_available,
+    get_local_asr_status,
     get_configured_transcription_provider_id,
+    list_transcription_provider_types,
     list_transcription_providers,
     transcribe_audio,
 )
@@ -67,8 +70,11 @@ from .tool_message_utils import (
 
 __all__ = [
     # Audio transcription
+    "check_sensevoice_available",
     "check_local_whisper_available",
+    "get_local_asr_status",
     "get_configured_transcription_provider_id",
+    "list_transcription_provider_types",
     "list_transcription_providers",
     "transcribe_audio",
     # Estimated token counter

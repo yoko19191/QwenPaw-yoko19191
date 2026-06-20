@@ -1190,6 +1190,37 @@ class AgentProfileConfig(BaseModel):
     )
 
 
+TranscriptionProviderType = Literal[
+    "disabled",
+    "whisper_api",
+    "local_whisper",
+    "doubao_seedasr_stream",
+    "dashscope_qwen3_flash",
+    "dashscope_qwen3_filetrans",
+    "mimo_asr",
+    "sensevoice_local",
+]
+
+
+class TranscriptionProviderConfig(BaseModel):
+    """Provider-specific ASR configuration.
+
+    API keys may be stored encrypted by the workspace router. Environment
+    variables are preferred when configured.
+    """
+
+    model: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    api_key_env: str = ""
+    language: str = "auto"
+    resource_id: str = ""
+    app_key: str = ""
+    access_key: str = ""
+    timeout_seconds: int = 60
+    extra: Dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentsConfig(BaseModel):
     """Agents configuration (root config.json only contains references)."""
 
@@ -1236,17 +1267,18 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: TranscriptionProviderType = Field(
         default="disabled",
         description=(
             "Transcription backend. "
             '"disabled": no transcription; '
             '"whisper_api": remote OpenAI-compatible endpoint; '
-            '"local_whisper": locally installed openai-whisper.'
+            '"local_whisper": locally installed openai-whisper; '
+            '"doubao_seedasr_stream": Doubao streaming ASR 2.0; '
+            '"dashscope_qwen3_flash": DashScope Qwen3 ASR Flash; '
+            '"dashscope_qwen3_filetrans": DashScope async file ASR; '
+            '"mimo_asr": MiMo V2.5 ASR; '
+            '"sensevoice_local": local SenseVoiceSmall.'
         ),
     )
     transcription_provider_id: str = Field(
@@ -1263,6 +1295,13 @@ class AgentsConfig(BaseModel):
             "Model name for Whisper API transcription. "
             'e.g. "whisper-1", "whisper-large-v3".'
         ),
+    )
+    transcription_provider_configs: Dict[
+        str,
+        TranscriptionProviderConfig,
+    ] = Field(
+        default_factory=dict,
+        description="Provider-specific ASR settings keyed by provider type.",
     )
 
 

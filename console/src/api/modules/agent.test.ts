@@ -112,4 +112,38 @@ describe("agentApi", () => {
       body: JSON.stringify({ provider_id: "openai" }),
     });
   });
+
+  it("getTranscriptionConfig calls GET /workspace/transcription-config", async () => {
+    const config = { transcription_provider_type: "disabled" };
+    vi.mocked(request).mockResolvedValue(config);
+    const result = await agentApi.getTranscriptionConfig();
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-config");
+    expect(result).toEqual(config);
+  });
+
+  it("updateTranscriptionConfig sends PUT with config body", async () => {
+    const body = {
+      transcription_provider_type: "mimo_asr",
+      provider_configs: {
+        mimo_asr: { api_key_env: "MIMO_API_KEY" },
+      },
+    } as any;
+    await agentApi.updateTranscriptionConfig(body);
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-config", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  });
+
+  it("testTranscriptionProvider sends POST with provider config", async () => {
+    const body = {
+      transcription_provider_type: "dashscope_qwen3_flash",
+      provider_config: { api_key_env: "DASHSCOPE_API_KEY" },
+    };
+    await agentApi.testTranscriptionProvider(body);
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-test", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  });
 });

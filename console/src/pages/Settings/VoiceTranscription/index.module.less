@@ -44,6 +44,36 @@
   margin-bottom: 12px;
 }
 
+.cardHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px 16px;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    > span:first-child {
+      font-size: 13px;
+      color: #5f5f5f;
+      font-weight: 500;
+    }
+  }
+}
+
+.inlineAlert {
+  margin-top: 12px;
+}
+
 /* ─── Radio Options ──────────────────────────────────────────────────────── */
 .optionLabel {
   font-weight: 500;
@@ -79,5 +109,9 @@
   .footerButtons {
     background: #1f1f1f;
     border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .formGrid label > span:first-child {
+    color: rgba(255, 255, 255, 0.68);
   }
 }

@@ -13,6 +13,8 @@ from .config import (
     ActiveModelsInfo,
     ACPConfig,
     ACPAgentConfig,
+    TranscriptionProviderConfig,
+    TranscriptionProviderType,
 )
 from .utils import (
     get_available_channels,
@@ -43,6 +45,8 @@ __all__ = [
     "ActiveModelsInfo",
     "ACPConfig",
     "ACPAgentConfig",
+    "TranscriptionProviderConfig",
+    "TranscriptionProviderType",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",

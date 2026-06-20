@@ -6,7 +6,7 @@ import { useVoiceTranscription } from "./useVoiceTranscription";
 import {
   AudioModeCard,
   ProviderTypeCard,
-  ProviderSelectCard,
+  ProviderConfigCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -19,15 +19,24 @@ function VoiceTranscriptionPage() {
     setAudioMode,
     providerType,
     setProviderType,
+    providerTypes,
     selectedProviderId,
     setSelectedProviderId,
+    transcriptionModel,
+    setTranscriptionModel,
+    currentProviderConfig,
+    updateProviderConfig,
     localWhisperStatus,
+    localStatus,
     availableProviders,
     showProviderSection,
     isLocalWhisper,
-    isWhisperApi,
+    isSenseVoice,
+    testing,
+    testResult,
     fetchSettings,
     handleSave,
+    handleTest,
   } = useVoiceTranscription();
 
   if (loading) {
@@ -69,18 +78,27 @@ function VoiceTranscriptionPage() {
           <>
             <ProviderTypeCard
               providerType={providerType}
+              providerTypes={providerTypes}
               onProviderTypeChange={setProviderType}
               isLocalWhisper={isLocalWhisper}
+              isSenseVoice={isSenseVoice}
               localWhisperStatus={localWhisperStatus}
+              localStatus={localStatus}
             />
 
-            {isWhisperApi && (
-              <ProviderSelectCard
-                availableProviders={availableProviders}
-                selectedProviderId={selectedProviderId}
-                onProviderChange={setSelectedProviderId}
-              />
-            )}
+            <ProviderConfigCard
+              providerType={providerType}
+              config={currentProviderConfig}
+              availableProviders={availableProviders}
+              selectedProviderId={selectedProviderId}
+              onProviderChange={setSelectedProviderId}
+              transcriptionModel={transcriptionModel}
+              onTranscriptionModelChange={setTranscriptionModel}
+              onConfigChange={updateProviderConfig}
+              onTest={handleTest}
+              testing={testing}
+              testResult={testResult}
+            />
           </>
         )}
       </div>

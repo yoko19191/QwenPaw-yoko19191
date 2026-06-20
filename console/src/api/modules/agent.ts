@@ -8,6 +8,55 @@ export type TranscriptionErrorCode =
   | "FILE_TOO_LARGE"
   | "UNSUPPORTED_FILE_TYPE";
 
+export interface AsrProviderConfig {
+  model?: string;
+  base_url?: string;
+  api_key?: string;
+  api_key_env?: string;
+  api_key_configured?: boolean;
+  language?: string;
+  resource_id?: string;
+  app_key?: string;
+  access_key?: string;
+  access_key_configured?: boolean;
+  timeout_seconds?: number;
+  extra?: Record<string, unknown>;
+}
+
+export interface AsrProviderType {
+  id: string;
+  name: string;
+  local: boolean;
+  requires_key: boolean;
+  description: string;
+  available?: boolean;
+  default_model?: string;
+  default_env?: string;
+  status?: Record<string, unknown>;
+}
+
+export interface TranscriptionSettings {
+  audio_mode: string;
+  transcription_provider_type: string;
+  transcription_provider_id: string;
+  transcription_model: string;
+  provider_types: AsrProviderType[];
+  provider_configs: Record<string, AsrProviderConfig>;
+  whisper_api_providers: { id: string; name: string; available: boolean }[];
+  local_status: {
+    local_whisper?: Record<string, unknown>;
+    sensevoice?: Record<string, unknown>;
+  };
+}
+
+export interface TranscriptionTestResult {
+  success: boolean;
+  message: string;
+  latency_ms?: number;
+  text?: string;
+  status?: Record<string, unknown>;
+}
+
 export class TranscriptionError extends Error {
   status: number;
   code?: TranscriptionErrorCode;
@@ -97,12 +146,37 @@ export const agentApi = {
       },
     ),
 
+  getTranscriptionConfig: () =>
+    request<TranscriptionSettings>("/workspace/transcription-config"),
+
+  updateTranscriptionConfig: (settings: Partial<TranscriptionSettings>) =>
+    request<TranscriptionSettings>("/workspace/transcription-config", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+
+  testTranscriptionProvider: (body: {
+    transcription_provider_type: string;
+    provider_config?: AsrProviderConfig;
+    source_url?: string;
+  }) =>
+    request<TranscriptionTestResult>("/workspace/transcription-test", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   getLocalWhisperStatus: () =>
     request<{
       available: boolean;
       ffmpeg_installed: boolean;
       whisper_installed: boolean;
     }>("/workspace/local-whisper-status"),
+
+  getLocalAsrStatus: () =>
+    request<{
+      local_whisper: Record<string, unknown>;
+      sensevoice: Record<string, unknown>;
+    }>("/workspace/local-asr-status"),
 
   transcribeAudio: async (file: File | Blob): Promise<{ text: string }> => {
     const formData = new FormData();
