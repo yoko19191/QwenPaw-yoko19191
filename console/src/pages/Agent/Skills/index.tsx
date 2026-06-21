@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PlusOutlined } from "@ant-design/icons";
-import { Button } from "@agentscope-ai/design";
+import { Button, Tabs } from "@agentscope-ai/design";
 import {
   SkillCard,
   SkillDrawer,
@@ -18,6 +19,8 @@ function SkillsPage() {
   const { t } = useTranslation();
   const {
     skills,
+    archivedSkills,
+    skillProposals,
     visibleSkills,
     hasMore,
     sentinelRef,
@@ -50,6 +53,11 @@ function SkillsPage() {
     handleEdit,
     handleToggleEnabled,
     handleDelete,
+    handleArchive,
+    handleTogglePinned,
+    handleRestoreArchivedSkill,
+    handleApplyProposal,
+    handleDeleteProposal,
     handleDrawerClose,
     handleSubmit,
     handleUploadToPool,
@@ -71,6 +79,7 @@ function SkillsPage() {
     hardRefresh,
     cancelImport,
   } = useSkillsPage();
+  const [activeSection, setActiveSection] = useState("active");
 
   return (
     <div className={styles.skillsPage}>
@@ -110,88 +119,185 @@ function SkillsPage() {
         hint={t("skillPool.externalHubHint")}
       />
 
-      {!loading && skills.length > 0 && (
-        <SkillsToolbar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchTags={searchTags}
-          onTagsChange={setSearchTags}
-          allTags={allTags}
-          filterOpen={filterOpen}
-          onFilterOpenChange={setFilterOpen}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-        />
+      <Tabs
+        className={styles.lifecycleTabs}
+        activeKey={activeSection}
+        onChange={setActiveSection}
+        items={[
+          {
+            key: "active",
+            label: `${t("skills.activeTab")} (${skills.length})`,
+          },
+          {
+            key: "archived",
+            label: `${t("skills.archivedTab")} (${archivedSkills.length})`,
+          },
+          {
+            key: "proposals",
+            label: `${t("skills.proposalsTab")} (${skillProposals.length})`,
+          },
+        ]}
+      />
+
+      {activeSection === "active" && (
+        <>
+          {!loading && skills.length > 0 && (
+            <SkillsToolbar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchTags={searchTags}
+              onTagsChange={setSearchTags}
+              allTags={allTags}
+              filterOpen={filterOpen}
+              onFilterOpenChange={setFilterOpen}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+          )}
+
+          {loading ? (
+            <div className={styles.loading}>
+              <span className={styles.loadingText}>{t("common.loading")}</span>
+            </div>
+          ) : skills.length === 0 ? (
+            <div className={styles.emptyState}>
+              <div className={styles.emptyStateBadge}>
+                {t("skills.emptyStateBadge")}
+              </div>
+              <h2 className={styles.emptyStateTitle}>
+                {t("skills.emptyStateTitle")}
+              </h2>
+              <p className={styles.emptyStateText}>
+                {t("skills.emptyStateText")}
+              </p>
+              <div className={styles.emptyStateActions}>
+                <Button
+                  type="primary"
+                  className={styles.primaryActionButton}
+                  onClick={handleCreate}
+                  icon={<PlusOutlined />}
+                >
+                  {t("skills.emptyStateCreate")}
+                </Button>
+              </div>
+            </div>
+          ) : sortedSkills.length === 0 ? (
+            <div className={styles.noSearchResults}>
+              <span className={styles.noSearchResultsIcon}>🔍</span>
+              <span className={styles.noSearchResultsText}>
+                {t("skills.noSearchResults")}
+              </span>
+            </div>
+          ) : viewMode === "card" ? (
+            <div className={styles.skillsGrid}>
+              {visibleSkills.map((skill) => (
+                <SkillCard
+                  key={skill.name}
+                  skill={skill}
+                  selected={
+                    batchModeEnabled
+                      ? selectedSkills.has(skill.name)
+                      : undefined
+                  }
+                  onSelect={() => toggleSelect(skill.name)}
+                  onClick={() => handleEdit(skill)}
+                  onMouseEnter={() => {}}
+                  onMouseLeave={() => {}}
+                  onToggleEnabled={(e) => handleToggleEnabled(skill, e)}
+                  onDelete={(e) => handleDelete(skill, e)}
+                  onArchive={(e) => handleArchive(skill, e)}
+                  onTogglePinned={(e) => handleTogglePinned(skill, e)}
+                />
+              ))}
+              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+            </div>
+          ) : (
+            <div className={styles.skillsList}>
+              {visibleSkills.map((skill) => (
+                <SkillListItem
+                  key={skill.name}
+                  skill={skill}
+                  batchModeEnabled={batchModeEnabled}
+                  isSelected={selectedSkills.has(skill.name)}
+                  onSelect={() => toggleSelect(skill.name)}
+                  onClick={() => handleEdit(skill)}
+                  onToggleEnabled={async () => {
+                    await toggleEnabled(skill);
+                    await refreshSkills();
+                  }}
+                  onDelete={() => handleDelete(skill)}
+                  onArchive={() => handleArchive(skill)}
+                  onTogglePinned={() => handleTogglePinned(skill)}
+                />
+              ))}
+              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+            </div>
+          )}
+        </>
       )}
 
-      {loading ? (
-        <div className={styles.loading}>
-          <span className={styles.loadingText}>{t("common.loading")}</span>
+      {activeSection === "archived" && (
+        <div className={styles.lifecycleList}>
+          {archivedSkills.length === 0 ? (
+            <div className={styles.noSearchResults}>
+              <span className={styles.noSearchResultsText}>
+                {t("skills.noArchivedSkills")}
+              </span>
+            </div>
+          ) : (
+            archivedSkills.map((skill) => (
+              <div key={skill.archive_id} className={styles.lifecycleItem}>
+                <div className={styles.lifecycleItemMain}>
+                  <strong>{skill.name}</strong>
+                  <span>
+                    {skill.archive_reason || "-"} · {t("skills.usage")}:{" "}
+                    {skill.use_count || 0}
+                  </span>
+                </div>
+                <Button
+                  onClick={() => handleRestoreArchivedSkill(skill.archive_id)}
+                >
+                  {t("skills.restore")}
+                </Button>
+              </div>
+            ))
+          )}
         </div>
-      ) : skills.length === 0 ? (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyStateBadge}>
-            {t("skills.emptyStateBadge")}
-          </div>
-          <h2 className={styles.emptyStateTitle}>
-            {t("skills.emptyStateTitle")}
-          </h2>
-          <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
-          <div className={styles.emptyStateActions}>
-            <Button
-              type="primary"
-              className={styles.primaryActionButton}
-              onClick={handleCreate}
-              icon={<PlusOutlined />}
-            >
-              {t("skills.emptyStateCreate")}
-            </Button>
-          </div>
-        </div>
-      ) : sortedSkills.length === 0 ? (
-        <div className={styles.noSearchResults}>
-          <span className={styles.noSearchResultsIcon}>🔍</span>
-          <span className={styles.noSearchResultsText}>
-            {t("skills.noSearchResults")}
-          </span>
-        </div>
-      ) : viewMode === "card" ? (
-        <div className={styles.skillsGrid}>
-          {visibleSkills.map((skill) => (
-            <SkillCard
-              key={skill.name}
-              skill={skill}
-              selected={
-                batchModeEnabled ? selectedSkills.has(skill.name) : undefined
-              }
-              onSelect={() => toggleSelect(skill.name)}
-              onClick={() => handleEdit(skill)}
-              onMouseEnter={() => {}}
-              onMouseLeave={() => {}}
-              onToggleEnabled={(e) => handleToggleEnabled(skill, e)}
-              onDelete={(e) => handleDelete(skill, e)}
-            />
-          ))}
-          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
-        </div>
-      ) : (
-        <div className={styles.skillsList}>
-          {visibleSkills.map((skill) => (
-            <SkillListItem
-              key={skill.name}
-              skill={skill}
-              batchModeEnabled={batchModeEnabled}
-              isSelected={selectedSkills.has(skill.name)}
-              onSelect={() => toggleSelect(skill.name)}
-              onClick={() => handleEdit(skill)}
-              onToggleEnabled={async () => {
-                await toggleEnabled(skill);
-                await refreshSkills();
-              }}
-              onDelete={() => handleDelete(skill)}
-            />
-          ))}
-          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+      )}
+
+      {activeSection === "proposals" && (
+        <div className={styles.lifecycleList}>
+          {skillProposals.length === 0 ? (
+            <div className={styles.noSearchResults}>
+              <span className={styles.noSearchResultsText}>
+                {t("skills.noMergeProposals")}
+              </span>
+            </div>
+          ) : (
+            skillProposals.map((proposal) => (
+              <div key={proposal.id} className={styles.lifecycleItem}>
+                <div className={styles.lifecycleItemMain}>
+                  <strong>{proposal.suggested_name || proposal.id}</strong>
+                  <span>{proposal.source_skills.join(", ")}</span>
+                  <span>{proposal.reason || "-"}</span>
+                </div>
+                <div className={styles.lifecycleActions}>
+                  <Button
+                    type="primary"
+                    onClick={() => handleApplyProposal(proposal.id)}
+                  >
+                    {t("skills.applyProposal")}
+                  </Button>
+                  <Button
+                    danger
+                    onClick={() => handleDeleteProposal(proposal.id)}
+                  >
+                    {t("common.delete")}
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 

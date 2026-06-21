@@ -27,6 +27,8 @@ interface SkillCardProps {
   onMouseLeave?: () => void;
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
+  onArchive?: (e?: React.MouseEvent) => void;
+  onTogglePinned?: (e?: React.MouseEvent) => void;
 }
 
 const normalizeSkillIconKey = (value: string) =>
@@ -131,6 +133,8 @@ export const SkillCard = React.memo(function SkillCard({
   onMouseLeave,
   onToggleEnabled,
   onDelete,
+  onArchive,
+  onTogglePinned,
 }: SkillCardProps) {
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
@@ -144,6 +148,16 @@ export const SkillCard = React.memo(function SkillCard({
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDelete?.(e);
+  };
+
+  const handleArchiveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onArchive?.(e);
+  };
+
+  const handlePinnedClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onTogglePinned?.(e);
   };
 
   const handleSelectClick = (e: React.MouseEvent) => {
@@ -235,6 +249,17 @@ export const SkillCard = React.memo(function SkillCard({
         </div>
       )}
 
+      <div className={styles.metaInfoRow}>
+        <span className={styles.metaInfoLabel}>{t("skills.usage")}</span>
+        <span className={styles.metaInfoValue}>
+          {skill.use_count || 0}
+          {skill.last_used_at
+            ? ` · ${dayjs(skill.last_used_at).fromNow()}`
+            : ""}
+          {skill.pinned ? ` · ${t("skills.pinned")}` : ""}
+        </span>
+      </div>
+
       {/* Tags row */}
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
@@ -279,6 +304,24 @@ export const SkillCard = React.memo(function SkillCard({
               onClick={handleDeleteClick}
             >
               {t("common.delete")}
+            </Button>
+          )}
+          {onArchive && (
+            <Button
+              className={styles.actionButton}
+              disabled={batchMode}
+              onClick={handleArchiveClick}
+            >
+              {t("skills.archive")}
+            </Button>
+          )}
+          {onTogglePinned && (
+            <Button
+              className={styles.actionButton}
+              disabled={batchMode}
+              onClick={handlePinnedClick}
+            >
+              {skill.pinned ? t("skills.unpin") : t("skills.pin")}
             </Button>
           )}
         </div>

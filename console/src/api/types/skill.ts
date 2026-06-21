@@ -18,6 +18,31 @@ export interface SkillSpec {
   last_updated?: string;
   emoji?: string;
   installed_from?: string;
+  use_count?: number;
+  last_used_at?: string | null;
+  pinned?: boolean;
+}
+
+export interface ArchivedSkillSpec {
+  archive_id: string;
+  name: string;
+  content?: string;
+  archived_at?: string | null;
+  archive_reason?: string | null;
+  use_count?: number;
+  last_used_at?: string | null;
+  pinned?: boolean;
+}
+
+export interface SkillMergeProposalSpec {
+  id: string;
+  type: string;
+  source_skills: string[];
+  suggested_name: string;
+  reason?: string;
+  created_at?: string;
+  path?: string;
+  content?: string;
 }
 
 export interface PoolSkillSpec {

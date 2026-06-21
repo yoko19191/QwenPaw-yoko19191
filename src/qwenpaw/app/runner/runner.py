@@ -39,6 +39,8 @@ from ...exceptions import convert_model_exception
 from ...agents.utils.file_handling import (
     read_text_file_with_encoding_fallback,
 )
+from ...agents.skill_system.memory_service import SkillMemoryService
+from ...agents.memory.learning_loop import schedule_learning_review
 from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
 
@@ -284,6 +286,14 @@ class AgentRunner(Runner):
             f"</skill>"
         )
         AgentRunner._rewrite_last_message_text(msgs, merged)
+        try:
+            workspace = self.workspace_dir or WORKING_DIR
+            SkillMemoryService(workspace).record_usage(
+                skill_dir.name,
+                source="slash_command",
+            )
+        except Exception:
+            logger.debug("Failed to record skill usage", exc_info=True)
         logger.info("Skill invocation: %s", name)
         return None
 
@@ -435,6 +445,9 @@ class AgentRunner(Runner):
         chat = None
         session_state_loaded = False
         _cron_memory_snapshot = None
+        learning_completed = False
+        learning_response_msg = None
+        request_source = "chat"
         try:
             session_id = request.session_id
             user_id = request.user_id
@@ -879,6 +892,7 @@ class AgentRunner(Runner):
             # Isolated cron: run without any prior context so each execution
             # is independent (saves tokens, avoids stale-context interference).
             _extra = getattr(request, "model_extra", None) or {}
+            request_source = str(_extra.get("session_source", "chat") or "chat")
             if (
                 _extra.get("session_source") == "cron"
                 and agent.memory is not None
@@ -944,6 +958,8 @@ class AgentRunner(Runner):
                             max_iterations=max_iters,
                             agent_id=self.agent_id,
                         ):
+                            if last:
+                                learning_response_msg = msg
                             yield msg, last
                     else:
                         async for msg, last in run_mission_phase2(
@@ -953,6 +969,8 @@ class AgentRunner(Runner):
                             max_iterations=max_iters,
                             agent_id=self.agent_id,
                         ):
+                            if last:
+                                learning_response_msg = msg
                             yield msg, last
                 else:
                     async for (
@@ -962,7 +980,10 @@ class AgentRunner(Runner):
                         agents=[agent],
                         coroutine_task=agent(msgs),
                     ):
+                        if last:
+                            learning_response_msg = msg
                         yield msg, last
+            learning_completed = True
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
@@ -1057,6 +1078,16 @@ class AgentRunner(Runner):
                     channel=channel,
                     agent=agent,
                 )
+                if learning_completed:
+                    workspace = self.workspace_dir or WORKING_DIR
+                    await schedule_learning_review(
+                        agent_id=self.agent_id,
+                        workspace_dir=workspace,
+                        memory_manager=self.memory_manager,
+                        messages=msgs,
+                        response=learning_response_msg,
+                        source=request_source,
+                    )
 
             if self._chat_manager is not None and chat is not None:
                 await self._chat_manager.touch_chat(chat.id)

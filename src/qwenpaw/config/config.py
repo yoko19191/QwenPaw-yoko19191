@@ -680,6 +680,109 @@ class ReMeLightMemoryConfig(BaseModel):
     )
 
 
+class MarkdownMemoryConfig(BaseModel):
+    """File-backed Markdown long-term memory configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether to use workspace memory/*.md as long-term memory",
+    )
+    migrate_legacy_root_files: bool = Field(
+        default=True,
+        description=(
+            "Copy legacy root MEMORY.md/PROFILE.md into memory/MEMORY.md "
+            "and memory/USER.md on first initialization"
+        ),
+    )
+    max_prompt_chars: int = Field(
+        default=24000,
+        ge=1000,
+        description="Maximum characters injected from Markdown memory files",
+    )
+    review_enabled: bool = Field(
+        default=True,
+        description="Enable post-turn Markdown memory review loop",
+    )
+    review_interval_turns: int = Field(
+        default=5,
+        ge=1,
+        description="Run Markdown memory review every N successful user turns",
+    )
+    curator_enabled: bool = Field(
+        default=True,
+        description="Enable scheduled Markdown memory curation",
+    )
+    curator_cron: str = Field(
+        default="0 3 * * 0",
+        description="Cron expression for Markdown memory curation",
+    )
+    llm_consolidation_enabled: bool = Field(
+        default=False,
+        description="Allow curator to ask the LLM to consolidate memories",
+    )
+
+
+class ProceduralSkillMemoryConfig(BaseModel):
+    """Skill-as-procedural-memory learning configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Whether workspace skills participate in learning loops",
+    )
+    review_enabled: bool = Field(
+        default=True,
+        description="Enable post-turn procedural skill review loop",
+    )
+    review_interval_turns: int = Field(
+        default=10,
+        ge=1,
+        description="Run skill review every N successful user turns",
+    )
+    foreground_skill_manage_enabled: bool = Field(
+        default=False,
+        description="Expose skill_manage to the main foreground agent",
+    )
+    curator_enabled: bool = Field(
+        default=True,
+        description="Enable scheduled skill memory curator",
+    )
+    curator_cron: str = Field(
+        default="0 4 * * 0",
+        description="Cron expression for skill memory curator",
+    )
+    auto_archive_enabled: bool = Field(
+        default=True,
+        description="Automatically archive stale workspace skills",
+    )
+    archive_after_days: int = Field(
+        default=30,
+        ge=1,
+        description="Archive candidate when unused for this many days",
+    )
+    archive_min_uses: int = Field(
+        default=2,
+        ge=0,
+        description="Archive candidate when use_count is at or below this",
+    )
+    stale_passes_before_archive: int = Field(
+        default=2,
+        ge=1,
+        description="Number of curator passes before stale skill is archived",
+    )
+    merge_proposals_enabled: bool = Field(
+        default=True,
+        description="Generate merge proposals for overlapping skills",
+    )
+    auto_merge_enabled: bool = Field(
+        default=False,
+        description="Allow curator to automatically apply skill merges",
+    )
+
+
 class ContextCompactConfig(BaseModel):
     """Context compaction configuration."""
 
@@ -1001,6 +1104,14 @@ class AgentsRunningConfig(BaseModel):
 
     reme_light_memory_config: ReMeLightMemoryConfig = Field(
         default_factory=ReMeLightMemoryConfig,
+    )
+
+    markdown_memory_config: MarkdownMemoryConfig = Field(
+        default_factory=MarkdownMemoryConfig,
+    )
+
+    procedural_skill_memory_config: ProceduralSkillMemoryConfig = Field(
+        default_factory=ProceduralSkillMemoryConfig,
     )
 
     daily_memory_dir: str = Field(

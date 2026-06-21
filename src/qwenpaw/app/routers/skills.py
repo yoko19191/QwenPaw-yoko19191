@@ -31,6 +31,7 @@ from ...agents.skill_system.hub import (
 )
 from ...agents.skill_system import (
     SkillConflictError,
+    SkillMemoryService,
     SkillPoolService,
     SkillService,
 )
@@ -123,6 +124,31 @@ class SkillSpec(SkillInfo):
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
     installed_from: str = ""
+    use_count: int = 0
+    last_used_at: str | None = None
+    pinned: bool = False
+
+
+class ArchivedSkillSpec(BaseModel):
+    archive_id: str
+    name: str
+    content: str = ""
+    archived_at: str | None = None
+    archive_reason: str | None = None
+    use_count: int = 0
+    last_used_at: str | None = None
+    pinned: bool = False
+
+
+class SkillMergeProposalSpec(BaseModel):
+    id: str
+    type: str = "merge"
+    source_skills: list[str] = Field(default_factory=list)
+    suggested_name: str = ""
+    reason: str = ""
+    created_at: str = ""
+    path: str = ""
+    content: str = ""
 
 
 class PoolSkillSpec(SkillInfo):
@@ -250,6 +276,14 @@ class SaveSkillRequest(BaseModel):
     source_name: str | None = None
     config: dict[str, Any] | None = None
     overwrite: bool = False
+
+
+class PinSkillRequest(BaseModel):
+    pinned: bool = True
+
+
+class ApplyProposalRequest(BaseModel):
+    auto_merge: bool = True
 
 
 class HubInstallRequest(BaseModel):
@@ -511,6 +545,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
     manifest = read_skill_manifest(workspace_dir)
     entries = manifest.get("skills", {})
     skill_root = get_workspace_skills_dir(workspace_dir)
+    skill_records = SkillMemoryService(workspace_dir).list_skill_records()
     specs: list[SkillSpec] = []
     for skill_name, raw_entry in sorted(entries.items()):
         entry = normalize_skill_manifest_entry(raw_entry)
@@ -527,6 +562,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                 continue
             dump = skill.model_dump()
             dump["tags"] = entry.get("tags") or []
+            record = skill_records.get(skill_name, {}) or {}
             specs.append(
                 SkillSpec(
                     **dump,
@@ -537,6 +573,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     installed_from=str(
                         entry.get("installed_from", "") or "",
                     ),
+                    use_count=int(record.get("use_count", 0) or 0),
+                    last_used_at=record.get("last_used_at"),
+                    pinned=bool(record.get("pinned", False)),
                 ),
             )
         except Exception:
@@ -625,6 +664,85 @@ async def refresh_skills(request: Request) -> list[SkillSpec]:
     workspace_dir = await _request_workspace_dir(request)
     reconcile_workspace_manifest(workspace_dir)
     return _build_workspace_skill_specs(workspace_dir)
+
+
+@router.get("/archive")
+async def list_archived_skills(
+    request: Request,
+) -> list[ArchivedSkillSpec]:
+    workspace_dir = await _request_workspace_dir(request)
+    return [
+        ArchivedSkillSpec(**item)
+        for item in SkillMemoryService(workspace_dir).list_archived_skills()
+    ]
+
+
+@router.get("/proposals")
+async def list_skill_proposals(
+    request: Request,
+) -> list[SkillMergeProposalSpec]:
+    workspace_dir = await _request_workspace_dir(request)
+    return [
+        SkillMergeProposalSpec(**item)
+        for item in SkillMemoryService(workspace_dir).list_proposals()
+    ]
+
+
+@router.post("/proposals/{proposal_id}/apply")
+async def apply_skill_proposal(
+    request: Request,
+    proposal_id: str,
+    body: ApplyProposalRequest | None = Body(default=None),
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    result = SkillMemoryService(workspace_dir).apply_proposal(
+        proposal_id,
+        auto_merge=True if body is None else body.auto_merge,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("reason", "proposal not found"),
+        )
+    schedule_agent_reload(request, workspace.agent_id)
+    return result
+
+
+@router.delete("/proposals/{proposal_id}")
+async def delete_skill_proposal(
+    request: Request,
+    proposal_id: str,
+) -> dict[str, Any]:
+    workspace_dir = await _request_workspace_dir(request)
+    deleted = SkillMemoryService(workspace_dir).delete_proposal(proposal_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return {"deleted": True}
+
+
+@router.post("/archive/{archive_id}/restore")
+async def restore_archived_skill(
+    request: Request,
+    archive_id: str,
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    try:
+        result = SkillMemoryService(workspace_dir).restore_skill(archive_id)
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("reason", "archive not found"),
+        )
+    schedule_agent_reload(request, workspace.agent_id)
+    return result
 
 
 @router.get("/hub/search")
@@ -800,6 +918,7 @@ async def create_skill(
         )
     if body.enable:
         schedule_agent_reload(request, workspace.agent_id)
+    SkillMemoryService(workspace_dir).record_review(created, source="create")
     return {"created": True, "name": created}
 
 
@@ -1329,6 +1448,10 @@ async def batch_disable_skills(
     workspace_dir = Path(workspace.workspace_dir)
     service = SkillService(workspace_dir)
     results = {skill: service.disable_skill(skill) for skill in skills}
+    memory_service = SkillMemoryService(workspace_dir)
+    for skill, result in results.items():
+        if result.get("success"):
+            memory_service.record_review(skill, source="batch_disable")
     if any(result.get("success") for result in results.values()):
         schedule_agent_reload(request, workspace.agent_id)
     return {"results": results}
@@ -1355,6 +1478,11 @@ async def batch_enable_skills(
     for skill in skills:
         try:
             results[skill] = service.enable_skill(skill)
+            if results[skill].get("success"):
+                SkillMemoryService(workspace_dir).record_review(
+                    skill,
+                    source="batch_enable",
+                )
         except SkillScanError as exc:
             results[skill] = {
                 "success": False,
@@ -1381,6 +1509,10 @@ async def disable_skill(
     result = SkillService(workspace_dir).disable_skill(skill_name)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail="Skill not found")
+    SkillMemoryService(workspace_dir).record_review(
+        skill_name,
+        source="disable",
+    )
     schedule_agent_reload(request, workspace.agent_id)
     return {"disabled": True, **result}
 
@@ -1404,8 +1536,54 @@ async def enable_skill(
             status_code=404,
             detail=result.get("reason", "Skill not found"),
         )
+    SkillMemoryService(workspace_dir).record_review(
+        skill_name,
+        source="enable",
+    )
     schedule_agent_reload(request, workspace.agent_id)
     return {"enabled": True, **result}
+
+
+@router.post("/{skill_name}/archive")
+async def archive_skill_endpoint(
+    request: Request,
+    skill_name: str,
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    result = SkillMemoryService(workspace_dir).archive_skill(
+        skill_name,
+        reason="manual",
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("reason", "Skill not found"),
+        )
+    schedule_agent_reload(request, workspace.agent_id)
+    return result
+
+
+@router.put("/{skill_name}/pin")
+async def pin_skill_endpoint(
+    request: Request,
+    skill_name: str,
+    body: PinSkillRequest,
+) -> dict[str, Any]:
+    workspace_dir = await _request_workspace_dir(request)
+    record = SkillMemoryService(workspace_dir).set_pinned(
+        skill_name,
+        body.pinned,
+    )
+    return {
+        "updated": True,
+        "success": True,
+        "name": skill_name,
+        "pinned": bool(record.get("pinned", False)),
+        "record": record,
+    }
 
 
 @router.delete("/{skill_name}")
@@ -1467,6 +1645,10 @@ async def save_workspace_skill(
             raise HTTPException(status_code=409, detail=result)
         raise HTTPException(status_code=404, detail="Skill not found")
     if result.get("mode") != "noop":
+        SkillMemoryService(workspace_dir).record_review(
+            result.get("name", body.name),
+            source="save",
+        )
         schedule_agent_reload(request, workspace.agent_id)
     return result
 

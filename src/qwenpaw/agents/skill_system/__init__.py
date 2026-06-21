@@ -23,12 +23,14 @@ from .store import (
     resolve_pool_skill_dir,
 )
 from .workspace_service import SkillService
+from .memory_service import SkillMemoryService
 
 __all__ = [
     "SkillConflictError",
     "SkillInfo",
     "SkillPoolService",
     "SkillService",
+    "SkillMemoryService",
     "apply_skill_config_env_overrides",
     "ensure_skill_pool_initialized",
     "ensure_skills_initialized",
