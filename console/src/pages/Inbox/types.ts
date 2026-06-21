@@ -21,7 +21,8 @@ export interface PushMessage {
     | "telegram"
     | "discord"
     | "email"
-    | "heartbeat";
+    | "heartbeat"
+    | "harvest";
   channelName: string;
   title: string;
   content: string;
@@ -42,6 +43,18 @@ export interface PushMessage {
     durationMs?: number;
     agentId?: string;
     payload?: Record<string, unknown>;
+  };
+}
+
+export interface CreateHarvestValues {
+  name: string;
+  keywords: string;
+  templateId: string;
+  frequency: string;
+  emoji: string;
+  schedule: {
+    cron: string;
+    timezone: string;
   };
 }
 
@@ -66,6 +79,13 @@ export interface HarvestInstance {
     successRate: number;
     consecutiveDays: number;
   };
+}
+
+export interface HarvestHistoryItem {
+  id: string;
+  title: string;
+  content: string;
+  date: Date;
 }
 
 export interface ApprovalItem {

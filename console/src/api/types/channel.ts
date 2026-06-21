@@ -188,6 +188,17 @@ export interface ChannelConfig {
   onebot: OneBotConfig;
 }
 
+export interface ChannelMetadata {
+  key: string;
+  label: string;
+  order: number;
+  color: string;
+  is_builtin: boolean;
+  supports_qrcode: boolean;
+  supports_health: boolean;
+  docs_url?: string | null;
+}
+
 export type SingleChannelConfig =
   | IMessageChannelConfig
   | DiscordConfig

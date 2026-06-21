@@ -1,8 +1,15 @@
 import { request } from "../request";
-import type { ChannelConfig, SingleChannelConfig } from "../types";
+import type {
+  ChannelConfig,
+  ChannelMetadata,
+  SingleChannelConfig,
+} from "../types";
 
 export const channelApi = {
   listChannelTypes: () => request<string[]>("/config/channels/types"),
+
+  listChannelMetadata: () =>
+    request<ChannelMetadata[]>("/config/channels/metadata"),
 
   listChannels: () => request<ChannelConfig>("/config/channels"),
 

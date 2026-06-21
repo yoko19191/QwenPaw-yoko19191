@@ -11,6 +11,7 @@ Test ordering: read-only tests first, then write tests that
 toggle channel state, to avoid health-check failures caused by
 channel restart lag.
 """
+
 from __future__ import annotations
 
 import copy
@@ -71,6 +72,32 @@ def test_channel_types_returns_all_builtin(app_server) -> None:
     type_set = set(types)
     missing = _EXPECTED_BUILTIN_TYPES - type_set
     assert not missing, f"missing builtin types: {missing}"
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_channel_metadata_returns_all_builtin(app_server) -> None:
+    """Verify channel metadata is complete and exposes capability flags."""
+    resp = app_server.api_request(
+        "GET",
+        "/api/config/channels/metadata",
+        timeout=_CHANNEL_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    items = resp.json()
+    assert isinstance(items, list)
+    by_key = {item.get("key"): item for item in items}
+    missing = _EXPECTED_BUILTIN_TYPES - set(by_key)
+    assert not missing, f"missing metadata types: {missing}"
+
+    for key in ("wechat", "onebot", "yuanbao", "xiaoyi"):
+        item = by_key[key]
+        assert item["is_builtin"] is True
+        assert isinstance(item.get("label"), str) and item["label"]
+        assert isinstance(item.get("order"), int)
+
+    assert by_key["wechat"]["supports_qrcode"] is True
+    assert by_key["onebot"]["supports_health"] is True
 
 
 @pytest.mark.integration
@@ -510,9 +537,7 @@ def test_channel_bulk_put_preserves_unmodified_channels(
             if ch_name not in before:
                 continue
             for k, v in before[ch_name].items():
-                assert (
-                    after[ch_name].get(k) == v
-                ), f"side-effect on {ch_name}.{k}"
+                assert after[ch_name].get(k) == v, f"side-effect on {ch_name}.{k}"
     finally:
         app_server.api_request(
             "PUT",

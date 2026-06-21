@@ -39,6 +39,51 @@ class _Runtime:
     sem: asyncio.Semaphore
 
 
+def _inbox_event_context(
+    job: CronJobSpec,
+    *,
+    delivery_failed: bool = False,
+) -> dict[str, Any]:
+    """Build Inbox event fields for cron-owned and harvest-owned jobs."""
+    if job.meta.get("source") != "harvest":
+        if delivery_failed:
+            return {
+                "source_type": "cron",
+                "source_id": job.id,
+                "event_type": "cron_delivery_failed_fallback",
+                "title": f"Cron result not delivered: {job.name}",
+                "body": ("Task executed successfully, but channel delivery failed."),
+            }
+        return {
+            "source_type": "cron",
+            "source_id": job.id,
+            "event_type": "cron_result",
+            "title": f"Cron result: {job.name}",
+            "body": (
+                (job.text or "").strip()
+                if job.task_type == "text"
+                else "Agent cron task finished successfully."
+            ),
+        }
+
+    harvest_id = str(job.meta.get("harvest_id") or job.id or "")
+    if delivery_failed:
+        return {
+            "source_type": "harvest",
+            "source_id": harvest_id,
+            "event_type": "harvest_delivery_failed_fallback",
+            "title": f"Harvest result not delivered: {job.name}",
+            "body": ("Harvest executed successfully, but channel delivery failed."),
+        }
+    return {
+        "source_type": "harvest",
+        "source_id": harvest_id,
+        "event_type": "harvest_result",
+        "title": f"Harvest result: {job.name}",
+        "body": ("Harvest finished successfully. Open details to view the trace."),
+    }
+
+
 class CronManager:
     def __init__(
         self,
@@ -70,9 +115,7 @@ class CronManager:
             if self._started:
                 return
             jobs_file = await self._repo.load()
-            valid_job_ids = {
-                job.id for job in jobs_file.jobs if job.id is not None
-            }
+            valid_job_ids = {job.id for job in jobs_file.jobs if job.id is not None}
             await self._repo.prune_orphan_history(valid_job_ids)
 
             self._scheduler.start()
@@ -97,8 +140,7 @@ class CronManager:
                         )
                         await self._repo.upsert_job(disabled_job)
                         logger.warning(
-                            "Auto-disabled invalid cron job: "
-                            "job_id=%s name=%s",
+                            "Auto-disabled invalid cron job: " "job_id=%s name=%s",
                             job.id,
                             job.name,
                         )
@@ -528,14 +570,11 @@ class CronManager:
             try:
                 execution_result = await self._executor.execute(job)
                 execution_succeeded = True
-                delivery_failed = (
-                    execution_result.get("delivery_status") == "failed"
-                )
+                delivery_failed = execution_result.get("delivery_status") == "failed"
                 if delivery_failed:
                     st.last_status = "error"
                     delivery_error = (
-                        execution_result.get("delivery_error")
-                        or "delivery failed"
+                        execution_result.get("delivery_error") or "delivery failed"
                     )
                     st.last_error = f"delivery failed: {delivery_error}"
                 else:
@@ -580,20 +619,23 @@ class CronManager:
                 if execution_succeeded:
                     if delivery_failed:
                         try:
+                            inbox_context = _inbox_event_context(
+                                job,
+                                delivery_failed=True,
+                            )
                             await append_inbox_event(
                                 agent_id=self._agent_id,
-                                source_type="cron",
-                                source_id=job.id,
-                                event_type="cron_delivery_failed_fallback",
+                                source_type=inbox_context["source_type"],
+                                source_id=inbox_context["source_id"],
+                                event_type=inbox_context["event_type"],
                                 status="error",
                                 severity="error",
-                                title=f"Cron result not delivered: {job.name}",
-                                body=(
-                                    "Task executed successfully, "
-                                    "but channel delivery failed."
-                                ),
+                                title=inbox_context["title"],
+                                body=inbox_context["body"],
                                 payload={
                                     "job_id": job.id,
+                                    "cron_job_id": job.id,
+                                    "harvest_id": job.meta.get("harvest_id"),
                                     "job_name": job.name,
                                     "task_type": job.task_type,
                                     "trigger": trigger,
@@ -608,29 +650,26 @@ class CronManager:
                                 "failed to append cron fallback event",
                             )
                     elif job.save_result_to_inbox:
-                        if job.task_type == "text":
-                            body = (job.text or "").strip()
-                        else:
-                            body = "Agent cron task finished successfully."
                         try:
+                            inbox_context = _inbox_event_context(job)
                             await append_inbox_event(
                                 agent_id=self._agent_id,
-                                source_type="cron",
-                                source_id=job.id,
-                                event_type="cron_result",
+                                source_type=inbox_context["source_type"],
+                                source_id=inbox_context["source_id"],
+                                event_type=inbox_context["event_type"],
                                 status="success",
                                 severity="info",
-                                title=f"Cron result: {job.name}",
-                                body=body,
+                                title=inbox_context["title"],
+                                body=inbox_context["body"],
                                 payload={
                                     "job_id": job.id,
+                                    "cron_job_id": job.id,
+                                    "harvest_id": job.meta.get("harvest_id"),
                                     "job_name": job.name,
                                     "task_type": job.task_type,
                                     "trigger": trigger,
                                     "run_id": execution_result.get("run_id"),
-                                    "save_result_to_inbox": (
-                                        job.save_result_to_inbox
-                                    ),
+                                    "save_result_to_inbox": (job.save_result_to_inbox),
                                 },
                             )
                         except Exception:  # pylint: disable=broad-except

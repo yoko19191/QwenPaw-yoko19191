@@ -1,18 +1,13 @@
 import { useMemo, useState } from "react";
 import { Modal, Form, Input, Select, Button, Card } from "antd";
 import { Sparkles } from "lucide-react";
-import type { HarvestTemplate } from "../types";
+import type { CreateHarvestValues, HarvestTemplate } from "../types";
 import styles from "./CreateHarvestModal.module.less";
 
 interface CreateHarvestModalProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (values: {
-    name: string;
-    keywords: string;
-    templateId: string;
-    frequency: string;
-  }) => void;
+  onSubmit: (values: CreateHarvestValues) => void;
 }
 
 const TEMPLATES: HarvestTemplate[] = [
@@ -113,6 +108,8 @@ export function CreateHarvestModal({
             onSubmit({
               ...values,
               templateId: selectedTemplate.id,
+              emoji: selectedTemplate.emoji,
+              schedule: selectedTemplate.defaultSchedule,
             })
           }
           className={styles.formSection}

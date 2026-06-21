@@ -4,6 +4,7 @@
 This provides agent isolation by injecting agentId into request.state,
 allowing downstream APIs to access the correct agent context.
 """
+
 from fastapi import APIRouter, Request
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
@@ -77,10 +78,12 @@ def create_agent_scoped_router() -> APIRouter:
     from .mcp_oauth import router as mcp_oauth_router
     from .workspace import router as workspace_router
     from ..crons.api import router as cron_router
+    from ..harvests.api import router as harvests_router
     from ..runner.api import router as chats_router
     from .console import router as console_router
     from .plugins import router as plugins_router
     from .plan import router as plan_router
+    from .onboarding import router as onboarding_router
 
     router = APIRouter(prefix="/agents/{agentId}", tags=["agent-scoped"])
 
@@ -97,6 +100,7 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(chats_router)
     router.include_router(config_router)
     router.include_router(cron_router)
+    router.include_router(harvests_router)
     router.include_router(mcp_oauth_router)
     router.include_router(mcp_router)
     router.include_router(skills_router)
@@ -105,5 +109,6 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(console_router)
     router.include_router(plugins_router)
     router.include_router(plan_router)
+    router.include_router(onboarding_router)
 
     return router

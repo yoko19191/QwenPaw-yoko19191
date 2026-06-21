@@ -20,22 +20,9 @@ from ..channels.registry import BUILTIN_CHANNEL_KEYS
 from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
-    ConsoleConfig,
-    DingTalkConfig,
-    DiscordConfig,
-    FeishuConfig,
     HeartbeatConfig,
-    IMessageChannelConfig,
-    MatrixConfig,
-    MattermostConfig,
-    MQTTConfig,
-    QQConfig,
-    SIPChannelConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
-    TelegramConfig,
-    VoiceChannelConfig,
-    WecomConfig,
 )
 from ...agents.acp.core import ACPConfig, ACPAgentConfig
 
@@ -48,25 +35,15 @@ from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
     generate_qrcode_image,
 )
+from ..channels.metadata import (
+    ChannelMetadataResponse,
+    get_channel_config_model,
+    list_channel_metadata,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
 
-_CHANNEL_CONFIG_CLASS_MAP = {
-    "telegram": TelegramConfig,
-    "dingtalk": DingTalkConfig,
-    "discord": DiscordConfig,
-    "feishu": FeishuConfig,
-    "qq": QQConfig,
-    "imessage": IMessageChannelConfig,
-    "console": ConsoleConfig,
-    "voice": VoiceChannelConfig,
-    "sip": SIPChannelConfig,
-    "mattermost": MattermostConfig,
-    "mqtt": MQTTConfig,
-    "matrix": MatrixConfig,
-    "wecom": WecomConfig,
-}
 _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "call_title",
     "update_detail",
@@ -124,6 +101,20 @@ async def list_channels(request: Request) -> dict:
 async def list_channel_types() -> List[str]:
     """Return available channel type identifiers (env-filtered)."""
     return list(get_available_channels())
+
+
+@router.get(
+    "/channels/metadata",
+    response_model=list[ChannelMetadataResponse],
+    summary="List channel metadata",
+    description="Return display and capability metadata for available channels",
+)
+async def list_channels_metadata() -> list[ChannelMetadataResponse]:
+    """Return metadata for built-in and custom channel types."""
+    return list_channel_metadata(
+        get_available_channels(),
+        qrcode_keys=QRCODE_AUTH_HANDLERS.keys(),
+    )
 
 
 @router.put(
@@ -374,7 +365,7 @@ async def put_channel(
     if agent.config.channels is None:
         agent.config.channels = ChannelConfig()
 
-    config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
+    config_class = get_channel_config_model(channel_name)
     if config_class is not None:
         channel_config = config_class(**single_channel_config)
     else:
@@ -774,9 +765,7 @@ async def put_file_guard(
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
     if body.allow_preview_outside_workspace is not None:
-        fg.allow_preview_outside_workspace = (
-            body.allow_preview_outside_workspace
-        )
+        fg.allow_preview_outside_workspace = body.allow_preview_outside_workspace
 
     save_config(config)
 

@@ -9,6 +9,8 @@ import { acpApi } from "./modules/acp";
 import { channelApi } from "./modules/channel";
 import { heartbeatApi } from "./modules/heartbeat";
 import { cronJobApi } from "./modules/cronjob";
+import { harvestApi } from "./modules/harvest";
+import { onboardingApi } from "./modules/onboarding";
 import { chatApi, sessionApi } from "./modules/chat";
 import { envApi } from "./modules/env";
 import { providerApi } from "./modules/provider";
@@ -44,6 +46,12 @@ export const api = {
 
   // Cron Jobs
   ...cronJobApi,
+
+  // Harvests
+  ...harvestApi,
+
+  // Onboarding
+  ...onboardingApi,
 
   // Chats
   ...chatApi,

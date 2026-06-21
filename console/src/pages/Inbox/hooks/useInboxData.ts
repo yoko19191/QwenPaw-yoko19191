@@ -2,16 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { InboxEvent } from "../../../api/modules/console";
+import type { HarvestViewOutput } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
   DEFAULT_AGENT_ID,
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
-import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
+import type {
+  CreateHarvestValues,
+  HarvestInstance,
+  InboxSummary,
+  PushMessage,
+} from "../types";
 
 const PUSH_POLLING_INTERVAL_MS = 6000;
-
-const MOCK_HARVESTS: HarvestInstance[] = [];
 
 const mapPriority = (text: string): "low" | "normal" | "high" | "urgent" => {
   if (text.includes("❌") || text.toLowerCase().includes("error")) {
@@ -45,12 +49,16 @@ const mapEventToPushMessage = (
   channelType:
     event.source_type === "heartbeat"
       ? "heartbeat"
+      : event.source_type === "harvest"
+      ? "harvest"
       : event.source_type === "cron"
       ? "wechat"
       : "email",
   channelName:
     event.source_type === "heartbeat"
       ? "Heartbeat"
+      : event.source_type === "harvest"
+      ? "Harvest"
       : event.source_type === "cron"
       ? "Cron"
       : "System",
@@ -87,6 +95,46 @@ const mapEventToPushMessage = (
   },
 });
 
+const mapHarvestView = (item: HarvestViewOutput): HarvestInstance => {
+  const schedule = item.schedule || { type: "cron", cron: "", timezone: "UTC" };
+  const nextRun =
+    item.next_run_at ||
+    (schedule.type === "once" ? schedule.run_at : undefined) ||
+    new Date().toISOString();
+  return {
+    id: item.id,
+    name: item.name,
+    templateId: item.template_id,
+    emoji: item.emoji,
+    schedule: {
+      cron: schedule.type === "cron" ? schedule.cron : "once",
+      timezone: schedule.timezone || "UTC",
+      nextRun: new Date(nextRun),
+    },
+    status: item.status,
+    lastGenerated: item.last_generated
+      ? {
+          timestamp: new Date(item.last_generated.timestamp),
+          success: item.last_generated.success,
+        }
+      : undefined,
+    stats: {
+      totalGenerated: item.stats.total_generated,
+      successRate: item.stats.success_rate,
+      consecutiveDays: item.stats.consecutive_days,
+    },
+  };
+};
+
+const buildHarvestPrompt = (values: CreateHarvestValues): string => {
+  const keywords = values.keywords.trim();
+  return [
+    `Create an Inbox harvest for: ${keywords}.`,
+    "Return a concise markdown briefing with key updates, why they matter, and recommended next actions.",
+    `Template: ${values.templateId}. Frequency: ${values.frequency}.`,
+  ].join("\n");
+};
+
 export const useInboxData = () => {
   const { t } = useTranslation();
   const agents = useAgentStore((state) => state.agents);
@@ -113,21 +161,36 @@ export const useInboxData = () => {
   const [summary, setSummary] = useState<InboxSummary>({
     approvals: { total: 0, urgent: 0 },
     pushMessages: { total: 0, unread: 0 },
-    harvests: {
-      total: MOCK_HARVESTS.length,
-      active: MOCK_HARVESTS.filter((h) => h.status === "active").length,
-    },
+    harvests: { total: 0, active: 0 },
   });
   const [pushMessages, setPushMessages] = useState<PushMessage[]>([]);
   const pushMessagesRef = useRef(pushMessages);
   pushMessagesRef.current = pushMessages;
-  const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
+  const [harvests, setHarvests] = useState<HarvestInstance[]>([]);
+
+  const loadHarvests = useCallback(async () => {
+    try {
+      const items = await api.listHarvests();
+      const nextHarvests = (items || []).map(mapHarvestView);
+      setHarvests(nextHarvests);
+      setSummary((prev) => ({
+        ...prev,
+        harvests: {
+          total: nextHarvests.length,
+          active: nextHarvests.filter((item) => item.status === "active")
+            .length,
+        },
+      }));
+    } catch (error) {
+      console.error("Failed to fetch harvest data", error);
+    }
+  }, []);
 
   const loadPushMessages = useCallback(async () => {
     try {
       const res = await api.getInboxEvents({ limit: 200 });
       const events = [...(res?.events || [])].filter((event) =>
-        ["cron", "heartbeat"].includes(event.source_type),
+        ["cron", "heartbeat", "harvest"].includes(event.source_type),
       );
       events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       const nextItems: PushMessage[] = events.map((event) =>
@@ -148,6 +211,7 @@ export const useInboxData = () => {
 
   useEffect(() => {
     void loadPushMessages();
+    void loadHarvests();
 
     let timer: number | null = null;
 
@@ -155,6 +219,7 @@ export const useInboxData = () => {
       if (timer) return;
       timer = window.setInterval(() => {
         void loadPushMessages();
+        void loadHarvests();
       }, PUSH_POLLING_INTERVAL_MS);
     };
 
@@ -168,6 +233,7 @@ export const useInboxData = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void loadPushMessages();
+        void loadHarvests();
         startPolling();
       } else {
         stopPolling();
@@ -183,7 +249,7 @@ export const useInboxData = () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loadPushMessages]);
+  }, [loadHarvests, loadPushMessages]);
 
   const markMessageAsRead = useCallback((messageId: string) => {
     void api.markInboxRead({ event_ids: [messageId] });
@@ -262,9 +328,47 @@ export const useInboxData = () => {
     [deleteMessages],
   );
 
-  const triggerHarvest = useCallback((harvestId: string) => {
-    console.info("triggerHarvest", harvestId);
-  }, []);
+  const createHarvest = useCallback(
+    async (values: CreateHarvestValues): Promise<HarvestInstance> => {
+      const created = await api.createHarvest({
+        name: values.name.trim(),
+        template_id: values.templateId,
+        emoji: values.emoji,
+        enabled: true,
+        prompt: buildHarvestPrompt(values),
+        schedule: {
+          type: "cron",
+          cron: values.schedule.cron,
+          timezone: values.schedule.timezone,
+        },
+        target: {
+          channel: "console",
+          user_id: "harvest",
+          session_id: "console:harvest",
+        },
+        runtime: {
+          max_concurrency: 1,
+          timeout_seconds: 240,
+          misfire_grace_seconds: 60,
+        },
+      });
+      const mapped = mapHarvestView(created);
+      await loadHarvests();
+      return mapped;
+    },
+    [loadHarvests],
+  );
+
+  const triggerHarvest = useCallback(
+    async (harvestId: string) => {
+      await api.runHarvest(harvestId);
+      await loadHarvests();
+      window.setTimeout(() => {
+        void loadPushMessages();
+      }, 1500);
+    },
+    [loadHarvests, loadPushMessages],
+  );
 
   return {
     summary,
@@ -274,7 +378,9 @@ export const useInboxData = () => {
     markAllMessagesAsRead,
     deleteMessage,
     deleteMessages,
+    createHarvest,
     triggerHarvest,
     refreshPushMessages: loadPushMessages,
+    refreshHarvests: loadHarvests,
   };
 };

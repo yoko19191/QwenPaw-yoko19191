@@ -1,0 +1,99 @@
+.onboardingChecklist {
+  margin: 12px 32px 0;
+  padding: 12px;
+  border: 1px solid rgba(46, 125, 50, 0.2);
+  border-radius: 8px;
+  background: #f7fbf7;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: minmax(160px, max-content) minmax(120px, 1fr) 32px;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.titleBlock {
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.subtitle,
+.stepDescription {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.56);
+}
+
+.progress {
+  min-width: 120px;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) max-content 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepIcon {
+  color: rgba(46, 125, 50, 0.75);
+}
+
+.stepDone {
+  grid-template-columns: 18px minmax(0, 1fr);
+  opacity: 0.75;
+}
+
+.stepDoneIcon {
+  color: #2e7d32;
+}
+
+.stepText {
+  min-width: 0;
+}
+
+.stepTitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.82);
+}
+
+@media (max-width: 760px) {
+  .onboardingChecklist {
+    margin: 10px 14px 0;
+  }
+
+  .header,
+  .step {
+    grid-template-columns: 1fr;
+  }
+}
+
+:global(.dark-mode) {
+  .onboardingChecklist {
+    border-color: rgba(129, 199, 132, 0.22);
+    background: rgba(76, 175, 80, 0.08);
+  }
+
+  .title,
+  .stepTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .subtitle,
+  .stepDescription {
+    color: rgba(255, 255, 255, 0.58);
+  }
+}

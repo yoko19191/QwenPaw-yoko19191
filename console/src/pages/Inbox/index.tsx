@@ -21,7 +21,7 @@ import {
   DownOutlined,
   ToolOutlined,
 } from "@ant-design/icons";
-import { PackageOpen, Bell } from "lucide-react";
+import { PackageOpen, Bell, Sprout } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -31,7 +31,12 @@ import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
-import { PushMessageCard } from "./components";
+import {
+  CreateHarvestModal,
+  HarvestCard,
+  MagazineStackViewer,
+  PushMessageCard,
+} from "./components";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import { useAgentStore } from "../../stores/agentStore";
@@ -44,9 +49,14 @@ import {
   formatToolInput,
   formatToolBlockContent,
 } from "./utils/traceUtils";
+import type {
+  CreateHarvestValues,
+  HarvestHistoryItem,
+  HarvestInstance,
+} from "./types";
 import styles from "./index.module.less";
 
-type TabKey = "approvals" | "messages";
+type TabKey = "approvals" | "messages" | "harvests";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
 const PUSH_MESSAGES_PAGE_SIZE = 5;
 
@@ -55,7 +65,11 @@ const resolveInitialTab = (): TabKey => {
     return "messages";
   }
   const stored = window.localStorage.getItem(INBOX_TAB_STORAGE_KEY);
-  if (stored === "approvals" || stored === "messages") {
+  if (
+    stored === "approvals" ||
+    stored === "messages" ||
+    stored === "harvests"
+  ) {
     return stored;
   }
   return "messages";
@@ -77,15 +91,22 @@ export default function InboxPage() {
   const [messagesPage, setMessagesPage] = useState(1);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
+  const [createHarvestOpen, setCreateHarvestOpen] = useState(false);
+  const [selectedHarvestId, setSelectedHarvestId] = useState<string | null>(
+    null,
+  );
   const agents = useAgentStore((state) => state.agents);
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
     summary,
     pushMessages,
+    harvests,
     markMessageAsRead,
     markAllMessagesAsRead,
     deleteMessage,
     deleteMessages,
+    createHarvest,
+    triggerHarvest,
   } = useInboxData();
   const agentDisplayNameById = useMemo(
     () =>
@@ -146,6 +167,29 @@ export default function InboxPage() {
     1,
     Math.ceil(filteredPushMessages.length / PUSH_MESSAGES_PAGE_SIZE),
   );
+  const selectedHarvest = useMemo<HarvestInstance | null>(
+    () => harvests.find((item) => item.id === selectedHarvestId) || null,
+    [harvests, selectedHarvestId],
+  );
+  const selectedHarvestHistory = useMemo<HarvestHistoryItem[]>(() => {
+    if (!selectedHarvest) return [];
+    return pushMessages
+      .filter((item) => {
+        if (item.metadata?.sourceType !== "harvest") return false;
+        const payloadHarvestId = item.metadata.payload?.harvest_id;
+        return (
+          item.metadata.sourceId === selectedHarvest.id ||
+          payloadHarvestId === selectedHarvest.id
+        );
+      })
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        content: item.content,
+        date: item.createdAt,
+      }))
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [pushMessages, selectedHarvest]);
 
   const handleApproveRequest = async (
     requestId: string,
@@ -271,6 +315,28 @@ export default function InboxPage() {
     }
   };
 
+  const handleCreateHarvest = async (values: CreateHarvestValues) => {
+    try {
+      await createHarvest(values);
+      setCreateHarvestOpen(false);
+      setActiveTab("harvests");
+      message.success(t("inbox.createSuccess"));
+    } catch {
+      message.error(t("common.operationFailed"));
+    }
+  };
+
+  const handleTriggerHarvest = async (harvestId: string) => {
+    try {
+      await triggerHarvest(harvestId);
+      message.success(
+        t("inbox.harvestRunStarted", { defaultValue: "Harvest started" }),
+      );
+    } catch {
+      message.error(t("common.operationFailed"));
+    }
+  };
+
   const tabItems = [
     {
       key: "messages",
@@ -384,6 +450,56 @@ export default function InboxPage() {
       ),
     },
     {
+      key: "harvests",
+      label: (
+        <span className={styles.tabLabel}>
+          <Sprout size={16} />
+          {t("inbox.tabHarvests")}
+          {summary.harvests.active > 0 && (
+            <Badge count={summary.harvests.active} color="#2e7d32" />
+          )}
+        </span>
+      ),
+      children: (
+        <div className={styles.tabContent}>
+          <div className={styles.messagesToolbar}>
+            <div className={styles.messagesSelectionTools}>
+              <span className={styles.selectedCountText}>
+                {t("inbox.summaryHarvests")}: {summary.harvests.total}
+              </span>
+            </div>
+            <Button type="primary" onClick={() => setCreateHarvestOpen(true)}>
+              {t("inbox.createHarvest")}
+            </Button>
+          </div>
+          {harvests.length > 0 ? (
+            <div className={styles.harvestGrid}>
+              {harvests.map((harvest) => (
+                <HarvestCard
+                  key={harvest.id}
+                  harvest={harvest}
+                  onTrigger={handleTriggerHarvest}
+                  onViewAll={setSelectedHarvestId}
+                  onSettings={() =>
+                    message.info(t("inbox.harvestSettingsComingSoon"))
+                  }
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty
+              description={t("inbox.emptyHarvests")}
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            >
+              <Button type="primary" onClick={() => setCreateHarvestOpen(true)}>
+                {t("inbox.createFirstHarvest")}
+              </Button>
+            </Empty>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "approvals",
       label: (
         <span className={styles.tabLabel}>
@@ -466,6 +582,19 @@ export default function InboxPage() {
           className={styles.inboxTabs}
         />
       </div>
+      <CreateHarvestModal
+        open={createHarvestOpen}
+        onClose={() => setCreateHarvestOpen(false)}
+        onSubmit={(values) => void handleCreateHarvest(values)}
+      />
+      {selectedHarvest ? (
+        <MagazineStackViewer
+          open={!!selectedHarvest}
+          harvest={selectedHarvest}
+          items={selectedHarvestHistory}
+          onClose={() => setSelectedHarvestId(null)}
+        />
+      ) : null}
       <Modal
         open={detailOpen}
         onCancel={closeDetail}

@@ -5,6 +5,7 @@ import {
   Send,
   MessageSquare,
   Mail,
+  Sprout,
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +28,7 @@ const CHANNEL_ICONS = {
   discord: MessageSquare,
   email: Mail,
   heartbeat: MessageCircle,
+  harvest: Sprout,
 };
 
 const CHANNEL_COLORS = {
@@ -36,11 +38,12 @@ const CHANNEL_COLORS = {
   discord: "#5865F2",
   email: "#EA4335",
   heartbeat: "#5865F2",
+  harvest: "#2E7D32",
 };
 
 const normalizeCronTaskName = (title: string): string =>
   title
-    .replace(/^(cron result|heartbeat result)\s*[:：]\s*/i, "")
+    .replace(/^(cron result|heartbeat result|harvest result)\s*[:：]\s*/i, "")
     .replace(/^(定时任务结果|心跳结果)\s*[:：]\s*/i, "")
     .trim();
 
@@ -51,8 +54,11 @@ export function PushMessageCard(props: PushMessageCardProps) {
   const channelColor = CHANNEL_COLORS[message.channelType];
   const sourceType = (message.metadata?.sourceType || "").toLowerCase();
   const isCronMessage = sourceType === "cron";
+  const isHarvestMessage = sourceType === "harvest";
   const displayTitle = isCronMessage
     ? t("inbox.pushCronHeader", { name: normalizeCronTaskName(message.title) })
+    : isHarvestMessage
+    ? normalizeCronTaskName(message.title)
     : message.title;
 
   return (

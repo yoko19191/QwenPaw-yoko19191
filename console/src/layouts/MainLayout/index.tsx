@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
+import OnboardingChecklist from "../../components/OnboardingChecklist";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
@@ -53,6 +54,7 @@ export default function MainLayout() {
         <Content className="page-container">
           <ConsolePollService />
           <Slot name="content.statusBar" kind="fill" />
+          <OnboardingChecklist />
           <div className="page-content">
             <ChunkErrorBoundary resetKey={currentPath}>
               <Suspense
