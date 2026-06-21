@@ -59,6 +59,32 @@ export interface ReMeLightMemoryConfig {
   recursive_file_watcher: boolean;
 }
 
+export interface MarkdownMemoryConfig {
+  enabled: boolean;
+  migrate_legacy_root_files: boolean;
+  max_prompt_chars: number;
+  review_enabled: boolean;
+  review_interval_turns: number;
+  curator_enabled: boolean;
+  curator_cron: string;
+  llm_consolidation_enabled: boolean;
+}
+
+export interface ProceduralSkillMemoryConfig {
+  enabled: boolean;
+  review_enabled: boolean;
+  review_interval_turns: number;
+  foreground_skill_manage_enabled: boolean;
+  curator_enabled: boolean;
+  curator_cron: string;
+  auto_archive_enabled: boolean;
+  archive_after_days: number;
+  archive_min_uses: number;
+  stale_passes_before_archive: number;
+  merge_proposals_enabled: boolean;
+  auto_merge_enabled: boolean;
+}
+
 export interface AutoTitleConfig {
   enabled: boolean;
   timeout_seconds: number;
@@ -106,6 +132,8 @@ export interface AgentsRunningConfig {
   memory_manager_backend: string;
   adbpg_memory_config?: ADBPGMemoryConfig | null;
   reme_light_memory_config: ReMeLightMemoryConfig;
+  markdown_memory_config: MarkdownMemoryConfig;
+  procedural_skill_memory_config: ProceduralSkillMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;
 }

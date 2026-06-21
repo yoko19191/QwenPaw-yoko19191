@@ -1,6 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Form, Modal } from "@agentscope-ai/design";
-import type { PoolSkillSpec, SkillSpec } from "../../../api/types";
+import type {
+  ArchivedSkillSpec,
+  PoolSkillSpec,
+  SkillMergeProposalSpec,
+  SkillSpec,
+} from "../../../api/types";
 import type { SkillDrawerFormValues } from "./components";
 import { useConflictRenameModal } from "./components";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
@@ -78,6 +90,10 @@ export function useSkillsPage() {
   const [form] = Form.useForm<SkillDrawerFormValues>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
+  const [archivedSkills, setArchivedSkills] = useState<ArchivedSkillSpec[]>([]);
+  const [skillProposals, setSkillProposals] = useState<
+    SkillMergeProposalSpec[]
+  >([]);
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
     null,
   );
@@ -114,6 +130,19 @@ export function useSkillsPage() {
         .catch(() => undefined);
     }
   }, [poolModal]);
+
+  const refreshSkillMemoryLists = useCallback(async () => {
+    const [archived, proposals] = await Promise.all([
+      api.listArchivedSkills(),
+      api.listSkillProposals(),
+    ]);
+    setArchivedSkills(archived);
+    setSkillProposals(proposals);
+  }, []);
+
+  useEffect(() => {
+    void refreshSkillMemoryLists().catch(() => undefined);
+  }, [refreshSkillMemoryLists, selectedAgent]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -267,6 +296,52 @@ export function useSkillsPage() {
   const handleDelete = async (skill: SkillSpec, e?: React.MouseEvent) => {
     e?.stopPropagation();
     await deleteSkill(skill);
+  };
+
+  const handleArchive = async (skill: SkillSpec, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    Modal.confirm({
+      title: t("skills.archiveConfirmTitle"),
+      content: t("skills.archiveConfirmContent"),
+      okText: t("skills.archive"),
+      cancelText: t("common.cancel"),
+      onOk: async () => {
+        await api.archiveSkill(skill.name);
+        message.success(t("skills.archiveSuccess"));
+        invalidateSkillCache({ agentId: selectedAgent });
+        await Promise.all([refreshSkills(), refreshSkillMemoryLists()]);
+      },
+    });
+  };
+
+  const handleTogglePinned = async (skill: SkillSpec, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    await api.updateSkillPinned(skill.name, !skill.pinned);
+    message.success(
+      skill.pinned ? t("skills.unpinSuccess") : t("skills.pinSuccess"),
+    );
+    invalidateSkillCache({ agentId: selectedAgent });
+    await refreshSkills();
+  };
+
+  const handleRestoreArchivedSkill = async (archiveId: string) => {
+    await api.restoreArchivedSkill(archiveId);
+    message.success(t("skills.restoreSuccess"));
+    invalidateSkillCache({ agentId: selectedAgent });
+    await Promise.all([refreshSkills(), refreshSkillMemoryLists()]);
+  };
+
+  const handleApplyProposal = async (proposalId: string) => {
+    await api.applySkillProposal(proposalId);
+    message.success(t("skills.proposalApplySuccess"));
+    invalidateSkillCache({ agentId: selectedAgent });
+    await Promise.all([refreshSkills(), refreshSkillMemoryLists()]);
+  };
+
+  const handleDeleteProposal = async (proposalId: string) => {
+    await api.deleteSkillProposal(proposalId);
+    message.success(t("skills.proposalDeleteSuccess"));
+    await refreshSkillMemoryLists();
   };
 
   const handleDrawerClose = () => {
@@ -683,6 +758,8 @@ export function useSkillsPage() {
     hasMore,
     sentinelRef,
     poolSkills,
+    archivedSkills,
+    skillProposals,
     allTags,
     filteredSkills,
     conflictRenameModal,
@@ -711,6 +788,11 @@ export function useSkillsPage() {
     handleEdit,
     handleToggleEnabled,
     handleDelete,
+    handleArchive,
+    handleTogglePinned,
+    handleRestoreArchivedSkill,
+    handleApplyProposal,
+    handleDeleteProposal,
     handleDrawerClose,
     handleSubmit,
     handleUploadToPool,

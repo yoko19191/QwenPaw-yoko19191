@@ -11,6 +11,32 @@ import {
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
 
+const DEFAULT_MARKDOWN_MEMORY_CONFIG = {
+  enabled: true,
+  migrate_legacy_root_files: true,
+  max_prompt_chars: 24000,
+  review_enabled: true,
+  review_interval_turns: 5,
+  curator_enabled: true,
+  curator_cron: "0 3 * * 0",
+  llm_consolidation_enabled: false,
+};
+
+const DEFAULT_PROCEDURAL_SKILL_MEMORY_CONFIG = {
+  enabled: true,
+  review_enabled: true,
+  review_interval_turns: 10,
+  foreground_skill_manage_enabled: false,
+  curator_enabled: true,
+  curator_cron: "0 4 * * 0",
+  auto_archive_enabled: true,
+  archive_after_days: 30,
+  archive_min_uses: 2,
+  stale_passes_before_archive: 2,
+  merge_proposals_enabled: true,
+  auto_merge_enabled: false,
+};
+
 export function useAgentConfig() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -67,6 +93,11 @@ export function useAgentConfig() {
         light_context_config: config.light_context_config,
         memory_manager_backend: memoryBackend,
         reme_light_memory_config: config.reme_light_memory_config,
+        markdown_memory_config:
+          config.markdown_memory_config ?? DEFAULT_MARKDOWN_MEMORY_CONFIG,
+        procedural_skill_memory_config:
+          config.procedural_skill_memory_config ??
+          DEFAULT_PROCEDURAL_SKILL_MEMORY_CONFIG,
         adbpg_memory_config: config.adbpg_memory_config,
         auto_title_config: config.auto_title_config ?? {
           enabled: true,
@@ -147,6 +178,14 @@ export function useAgentConfig() {
           original.adbpg_memory_config,
           formValues.adbpg_memory_config,
         ) as typeof original.adbpg_memory_config,
+        markdown_memory_config: deepMergeConfig(
+          original.markdown_memory_config,
+          formValues.markdown_memory_config,
+        ) as typeof original.markdown_memory_config,
+        procedural_skill_memory_config: deepMergeConfig(
+          original.procedural_skill_memory_config,
+          formValues.procedural_skill_memory_config,
+        ) as typeof original.procedural_skill_memory_config,
         auto_title_config: deepMergeConfig(
           original.auto_title_config,
           formValues.auto_title_config,

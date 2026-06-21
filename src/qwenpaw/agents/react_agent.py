@@ -59,6 +59,9 @@ from .tools import (
     run_tool_batch,
     send_file_to_user,
     set_user_timezone,
+    skill_manage,
+    skill_read,
+    skill_usage,
     view_image,
     view_video,
     write_file,
@@ -286,6 +289,9 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             )
 
         # Map of tool functions (hardcoded builtin tools)
+        skill_memory_cfg = (
+            self._agent_config.running.procedural_skill_memory_config
+        )
         tool_functions = {
             "execute_shell_command": execute_shell_command,
             "read_file": read_file,
@@ -312,6 +318,16 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             **(
                 {"materialize_skill": materialize_skill}
                 if "make-skill" in effective_skills
+                else {}
+            ),
+            **(
+                {
+                    "skill_manage": skill_manage,
+                    "skill_read": skill_read,
+                    "skill_usage": skill_usage,
+                }
+                if skill_memory_cfg.enabled
+                and skill_memory_cfg.foreground_skill_manage_enabled
                 else {}
             ),
         }

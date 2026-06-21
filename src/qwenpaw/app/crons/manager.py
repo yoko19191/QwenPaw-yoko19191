@@ -14,6 +14,11 @@ from apscheduler.triggers.interval import IntervalTrigger
 from agentscope_runtime.engine.schemas.exception import ConfigurationException
 
 from ...config import get_heartbeat_config, get_dream_cron
+from ...config.config import load_agent_config
+from ...agents.memory.learning_loop import (
+    run_markdown_memory_curator,
+    run_skill_curator,
+)
 from ..inbox_store import append_event as append_inbox_event
 
 from ..console_push_store import append as push_store_append
@@ -29,6 +34,8 @@ from .repo.base import BaseJobRepository
 
 HEARTBEAT_JOB_ID = "_heartbeat"
 DREAM_JOB_ID = "_dream"
+MARKDOWN_MEMORY_CURATOR_JOB_ID = "_markdown_memory_curator"
+SKILL_CURATOR_JOB_ID = "_skill_curator"
 CRON_HISTORY_LIMIT = 50
 
 logger = logging.getLogger(__name__)
@@ -142,6 +149,8 @@ class CronManager:
                         f"Failed to schedule dream-based memory optimization"
                         f"for  agent {self._agent_id}: error={repr(e)}",
                     )
+
+            await self._schedule_learning_curators()
 
             self._started = True
 
@@ -503,6 +512,103 @@ class CronManager:
             raise
         except Exception:  # pylint: disable=broad-except
             logger.exception("dream run failed")
+
+    async def _schedule_learning_curators(self) -> None:
+        if not self._agent_id:
+            return
+        try:
+            running = load_agent_config(self._agent_id).running
+        except Exception:
+            logger.exception("failed to load learning curator config")
+            return
+
+        markdown_cfg = running.markdown_memory_config
+        if markdown_cfg.enabled and markdown_cfg.curator_enabled:
+            self._add_internal_cron_job(
+                MARKDOWN_MEMORY_CURATOR_JOB_ID,
+                markdown_cfg.curator_cron,
+                self._markdown_memory_curator_callback,
+            )
+
+        skill_cfg = running.procedural_skill_memory_config
+        if skill_cfg.enabled and skill_cfg.curator_enabled:
+            self._add_internal_cron_job(
+                SKILL_CURATOR_JOB_ID,
+                skill_cfg.curator_cron,
+                self._skill_curator_callback,
+            )
+
+    def _add_internal_cron_job(
+        self,
+        job_id: str,
+        cron: str,
+        callback: Any,
+    ) -> None:
+        if not cron:
+            return
+        try:
+            trigger = CronTrigger.from_crontab(
+                cron,
+                timezone=self._scheduler.timezone,
+            )
+            self._scheduler.add_job(
+                callback,
+                trigger=trigger,
+                id=job_id,
+                replace_existing=True,
+            )
+            logger.info(
+                "Internal curator job scheduled for agent %s: id=%s cron=%s",
+                self._agent_id,
+                job_id,
+                cron,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to schedule internal curator job: id=%s cron=%s",
+                job_id,
+                cron,
+            )
+
+    async def _markdown_memory_curator_callback(self) -> None:
+        try:
+            workspace_dir = (
+                self._runner.workspace_dir
+                if hasattr(self._runner, "workspace_dir")
+                else None
+            )
+            if workspace_dir is None or self._agent_id is None:
+                return
+            await asyncio.to_thread(
+                run_markdown_memory_curator,
+                agent_id=self._agent_id,
+                workspace_dir=workspace_dir,
+            )
+        except asyncio.CancelledError:
+            logger.info("markdown memory curator cancelled")
+            raise
+        except Exception:
+            logger.exception("markdown memory curator failed")
+
+    async def _skill_curator_callback(self) -> None:
+        try:
+            workspace_dir = (
+                self._runner.workspace_dir
+                if hasattr(self._runner, "workspace_dir")
+                else None
+            )
+            if workspace_dir is None or self._agent_id is None:
+                return
+            await asyncio.to_thread(
+                run_skill_curator,
+                agent_id=self._agent_id,
+                workspace_dir=workspace_dir,
+            )
+        except asyncio.CancelledError:
+            logger.info("skill curator cancelled")
+            raise
+        except Exception:
+            logger.exception("skill curator failed")
 
     # pylint: disable-next=too-many-branches,too-many-statements
     async def _execute_once(

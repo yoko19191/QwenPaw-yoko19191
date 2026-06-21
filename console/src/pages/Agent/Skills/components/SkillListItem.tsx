@@ -17,6 +17,8 @@ interface SkillListItemProps {
   onClick: () => void;
   onToggleEnabled: () => Promise<void>;
   onDelete: () => void;
+  onArchive?: () => void;
+  onTogglePinned?: () => void;
 }
 
 export function SkillListItem({
@@ -27,6 +29,8 @@ export function SkillListItem({
   onClick,
   onToggleEnabled,
   onDelete,
+  onArchive,
+  onTogglePinned,
 }: SkillListItemProps) {
   const { t } = useTranslation();
   const isBuiltin = isSkillBuiltin(skill.source);
@@ -71,6 +75,13 @@ export function SkillListItem({
             )}
           </div>
           <p className={styles.listItemDesc}>{skill.description || "-"}</p>
+          <div className={styles.listItemUsage}>
+            {t("skills.usage")}: {skill.use_count || 0}
+            {skill.last_used_at
+              ? ` · ${dayjs(skill.last_used_at).fromNow()}`
+              : ""}
+            {skill.pinned ? ` · ${t("skills.pinned")}` : ""}
+          </div>
           {!!skill.tags?.length && (
             <div className={styles.listItemTags}>
               {skill.tags.map((tag) => (
@@ -100,6 +111,28 @@ export function SkillListItem({
         >
           {t("common.delete")}
         </Button>
+        {onArchive && (
+          <Button
+            disabled={batchModeEnabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive();
+            }}
+          >
+            {t("skills.archive")}
+          </Button>
+        )}
+        {onTogglePinned && (
+          <Button
+            disabled={batchModeEnabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePinned();
+            }}
+          >
+            {skill.pinned ? t("skills.unpin") : t("skills.pin")}
+          </Button>
+        )}
       </div>
     </div>
   );

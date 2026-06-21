@@ -2,11 +2,13 @@ import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
+  ArchivedSkillSpec,
   BuiltinImportSpec,
   BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
   PoolSkillSpec,
+  SkillMergeProposalSpec,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
@@ -292,6 +294,47 @@ export const skillApi = {
     request<{ deleted: boolean }>(`/skills/${encodeURIComponent(skillName)}`, {
       method: "DELETE",
     }),
+
+  listArchivedSkills: () => request<ArchivedSkillSpec[]>("/skills/archive"),
+
+  archiveSkill: (skillName: string) =>
+    request<{ success: boolean; name: string; archive_id: string }>(
+      `/skills/${encodeURIComponent(skillName)}/archive`,
+      { method: "POST" },
+    ),
+
+  restoreArchivedSkill: (archiveId: string) =>
+    request<{ success: boolean; name: string }>(
+      `/skills/archive/${encodeURIComponent(archiveId)}/restore`,
+      { method: "POST" },
+    ),
+
+  updateSkillPinned: (skillName: string, pinned: boolean) =>
+    request<{ updated: boolean; record: Record<string, unknown> }>(
+      `/skills/${encodeURIComponent(skillName)}/pin`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ pinned }),
+      },
+    ),
+
+  listSkillProposals: () =>
+    request<SkillMergeProposalSpec[]>("/skills/proposals"),
+
+  applySkillProposal: (proposalId: string) =>
+    request<{ success: boolean; name?: string }>(
+      `/skills/proposals/${encodeURIComponent(proposalId)}/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify({ auto_merge: true }),
+      },
+    ),
+
+  deleteSkillProposal: (proposalId: string) =>
+    request<{ deleted: boolean }>(
+      `/skills/proposals/${encodeURIComponent(proposalId)}`,
+      { method: "DELETE" },
+    ),
 
   startHubSkillInstall: (
     payload: {

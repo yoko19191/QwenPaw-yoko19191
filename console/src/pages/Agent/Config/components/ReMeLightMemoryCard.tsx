@@ -83,6 +83,206 @@ export function ReMeLightMemoryCard() {
       <Collapse
         items={[
           {
+            key: "markdownMemory",
+            label: t("agentConfig.markdownMemoryCollapseLabel"),
+            forceRender: true,
+            children: (
+              <>
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryEnabled")}
+                  name={["markdown_memory_config", "enabled"]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.markdownMemoryEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryMigrateLegacy")}
+                  name={["markdown_memory_config", "migrate_legacy_root_files"]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.markdownMemoryMigrateLegacyTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryMaxPromptChars")}
+                  name={["markdown_memory_config", "max_prompt_chars"]}
+                  tooltip={t("agentConfig.markdownMemoryMaxPromptCharsTooltip")}
+                >
+                  <InputNumber
+                    style={{ width: "100%" }}
+                    min={1000}
+                    step={1000}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryReviewEnabled")}
+                  name={["markdown_memory_config", "review_enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryReviewInterval")}
+                  name={["markdown_memory_config", "review_interval_turns"]}
+                >
+                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryCuratorEnabled")}
+                  name={["markdown_memory_config", "curator_enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryCuratorCron")}
+                  name={["markdown_memory_config", "curator_cron"]}
+                  normalize={(value) => value ?? ""}
+                >
+                  <Input placeholder="0 3 * * 0" />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.markdownMemoryLlmConsolidation")}
+                  name={["markdown_memory_config", "llm_consolidation_enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+              </>
+            ),
+          },
+          {
+            key: "proceduralSkillMemory",
+            label: t("agentConfig.proceduralSkillMemoryCollapseLabel"),
+            forceRender: true,
+            children: (
+              <>
+                <Form.Item
+                  label={t("agentConfig.proceduralSkillMemoryEnabled")}
+                  name={["procedural_skill_memory_config", "enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.proceduralSkillReviewEnabled")}
+                  name={["procedural_skill_memory_config", "review_enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.proceduralSkillReviewInterval")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "review_interval_turns",
+                  ]}
+                >
+                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.foregroundSkillManageEnabled")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "foreground_skill_manage_enabled",
+                  ]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.foregroundSkillManageEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.proceduralSkillCuratorEnabled")}
+                  name={["procedural_skill_memory_config", "curator_enabled"]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.proceduralSkillCuratorCron")}
+                  name={["procedural_skill_memory_config", "curator_cron"]}
+                  normalize={(value) => value ?? ""}
+                >
+                  <Input placeholder="0 4 * * 0" />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillAutoArchiveEnabled")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "auto_archive_enabled",
+                  ]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillArchiveAfterDays")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "archive_after_days",
+                  ]}
+                >
+                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillArchiveMinUses")}
+                  name={["procedural_skill_memory_config", "archive_min_uses"]}
+                >
+                  <InputNumber style={{ width: "100%" }} min={0} step={1} />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillStalePassesBeforeArchive")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "stale_passes_before_archive",
+                  ]}
+                >
+                  <InputNumber style={{ width: "100%" }} min={1} step={1} />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillMergeProposalsEnabled")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "merge_proposals_enabled",
+                  ]}
+                  valuePropName="checked"
+                >
+                  <Switch />
+                </Form.Item>
+
+                <Form.Item
+                  label={t("agentConfig.skillAutoMergeEnabled")}
+                  name={[
+                    "procedural_skill_memory_config",
+                    "auto_merge_enabled",
+                  ]}
+                  valuePropName="checked"
+                  tooltip={t("agentConfig.skillAutoMergeEnabledTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+              </>
+            ),
+          },
+          {
             key: "autoMemorySearch",
             label: t("agentConfig.autoMemorySearchCollapseLabel"),
             forceRender: true,

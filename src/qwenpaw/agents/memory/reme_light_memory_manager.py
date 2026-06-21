@@ -17,6 +17,7 @@ from agentscope.message import Msg, TextBlock, ToolResultBlock, ToolUseBlock
 from agentscope.tool import Toolkit, ToolResponse
 
 from .base_memory_manager import BaseMemoryManager, memory_registry
+from .markdown_store import MarkdownMemoryStore
 from .prompts import (
     MEMORY_GUIDANCE_ZH,
     MEMORY_GUIDANCE_EN,
@@ -117,6 +118,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
 
         agent_config = load_agent_config(self.agent_id)
         reme_cfg = agent_config.running.reme_light_memory_config
+        markdown_cfg = agent_config.running.markdown_memory_config
+        self.markdown_store: MarkdownMemoryStore | None = None
+        if markdown_cfg.enabled:
+            self.markdown_store = MarkdownMemoryStore(
+                working_dir=working_dir,
+                memory_dir_name=agent_config.running.daily_memory_dir,
+                migrate_legacy_root_files=(
+                    markdown_cfg.migrate_legacy_root_files
+                ),
+            )
         rebuild_on_start = reme_cfg.rebuild_memory_index_on_start
 
         store_name = "memory"
@@ -126,7 +137,9 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             rebuild_on_start=rebuild_on_start,
         )
 
-        recursive_file_watcher = reme_cfg.recursive_file_watcher
+        recursive_file_watcher = (
+            reme_cfg.recursive_file_watcher or markdown_cfg.enabled
+        )
 
         self._memory_backend = memory_manager_backend
         self._reme_init_kwargs = {
@@ -374,11 +387,78 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     def get_memory_prompt(self, language: str = "zh") -> str:
         """Return the memory guidance prompt for the system prompt."""
         prompts = {"zh": MEMORY_GUIDANCE_ZH, "en": MEMORY_GUIDANCE_EN}
-        return prompts.get(language, MEMORY_GUIDANCE_EN)
+        prompt = prompts.get(language, MEMORY_GUIDANCE_EN)
+        agent_config = load_agent_config(self.agent_id)
+        markdown_cfg = agent_config.running.markdown_memory_config
+        if not markdown_cfg.enabled or self.markdown_store is None:
+            return prompt
+        snapshot = self.markdown_store.build_prompt_snapshot(
+            max_chars=markdown_cfg.max_prompt_chars,
+        )
+        if not snapshot:
+            return prompt
+        return (
+            f"{prompt}\n\n"
+            "<memory-context>\n"
+            "The following is a frozen snapshot loaded at agent startup. "
+            "Writes during this turn affect later turns only.\n\n"
+            f"{snapshot}\n"
+            "</memory-context>"
+        )
 
     def list_memory_tools(self):
         """Return memory tool functions to register with the agent toolkit."""
-        return [self.memory_search]
+        tools = [self.memory_search]
+        if self.markdown_store is not None:
+            tools.append(self.memory_manage)
+        return tools
+
+    async def memory_manage(
+        self,
+        action: str,
+        target: str = "MEMORY.md",
+        content: str = "",
+        old_text: str = "",
+        source: str = "agent",
+        operations: list[dict[str, Any]] | None = None,
+    ) -> ToolResponse:
+        """Add, replace, remove, or batch-update Markdown memory files.
+
+        Targets are restricted to safe ``memory/*.md`` paths. Use this when
+        the user asks to remember something or when stable preferences,
+        decisions, or reusable project knowledge should persist.
+        """
+        if self.markdown_store is None:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="Markdown memory store is disabled.",
+                    ),
+                ],
+            )
+        try:
+            normalized_action = action.strip().lower()
+            if normalized_action == "batch":
+                payload = self.markdown_store.apply_batch(operations or [])
+            else:
+                payload = self.markdown_store.apply(
+                    action=normalized_action,  # type: ignore[arg-type]
+                    target=target,
+                    content=content,
+                    old_text=old_text,
+                    source=source,
+                )
+        except Exception as exc:  # pylint: disable=broad-except
+            payload = {"success": False, "reason": str(exc)}
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=json.dumps(payload, ensure_ascii=False, indent=2),
+                ),
+            ],
+        )
 
     @staticmethod
     def _is_cjk(char: str) -> bool:
