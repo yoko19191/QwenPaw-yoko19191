@@ -14,7 +14,7 @@ import {
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { AutoComplete, Checkbox } from "antd";
 import {
   DeleteOutlined,
   PlusOutlined,
@@ -326,6 +326,14 @@ function CapabilityTags({
       </Tag>
     );
   }
+  if (model.supports_multimodal) {
+    return (
+      <Tag style={{ fontSize: 11, marginRight: 4, ...c.multimodal }}>
+        <AppstoreOutlined style={{ fontSize: 10, marginRight: 3 }} />
+        {t("models.tagMultimodal", "多模态")}
+      </Tag>
+    );
+  }
   if (model.supports_multimodal === false) {
     return (
       <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
@@ -342,6 +350,80 @@ function CapabilityTags({
   );
 }
 
+function formatTokenLimit(value: number | undefined): string | null {
+  if (!value || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function ModelLimitTags({
+  model,
+  isDark,
+}: {
+  model: ModelInfo;
+  isDark: boolean;
+}) {
+  const { t } = useTranslation();
+  if (model.probe_source !== "models.dev") {
+    return null;
+  }
+
+  const c = tagColors(isDark);
+  const context = formatTokenLimit(model.max_input_length);
+  const output = formatTokenLimit(model.max_tokens);
+
+  return (
+    <>
+      {context && (
+        <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
+          {t("models.modelContextLimitShort", { value: context })}
+        </Tag>
+      )}
+      {output && (
+        <Tag style={{ fontSize: 11, marginRight: 4, ...c.text }}>
+          {t("models.modelOutputLimitShort", { value: output })}
+        </Tag>
+      )}
+    </>
+  );
+}
+
+function normalizeDiscoveredModels(models: ModelInfo[]): ModelInfo[] {
+  const seen = new Set<string>();
+  return models
+    .map((model) => ({
+      ...model,
+      id: model.id.trim(),
+      name: (model.name || model.id).trim(),
+    }))
+    .filter((model) => {
+      if (!model.id || seen.has(model.id)) {
+        return false;
+      }
+      seen.add(model.id);
+      return true;
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function toAddModelPayload(model: ModelInfo) {
+  return {
+    id: model.id,
+    name: model.name || model.id,
+    is_free: model.is_free,
+    supports_multimodal: model.supports_multimodal,
+    supports_image: model.supports_image,
+    supports_video: model.supports_video,
+    probe_source: model.probe_source,
+    max_tokens: model.max_tokens,
+    max_input_length: model.max_input_length,
+  };
+}
+
 export function RemoteModelManageModal({
   provider,
   open,
@@ -356,12 +438,21 @@ export function RemoteModelManageModal({
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discoveringModels, setDiscoveringModels] = useState(false);
+  const [savingDiscoveredModels, setSavingDiscoveredModels] = useState(false);
   const [testingModelId, setTestingModelId] = useState<string | null>(null);
   const [probingModelId, setProbingModelId] = useState<string | null>(null);
   const [configOpenModelId, setConfigOpenModelId] = useState<string | null>(
     null,
   );
   const [modelSearchQuery, setModelSearchQuery] = useState("");
+  const [discoveryPanelOpen, setDiscoveryPanelOpen] = useState(false);
+  const [modelDiscoveryCandidates, setModelDiscoveryCandidates] = useState<
+    ModelInfo[]
+  >([]);
+  const [selectedDiscoveredModelIds, setSelectedDiscoveredModelIds] = useState<
+    string[]
+  >([]);
+  const [discoverySearchQuery, setDiscoverySearchQuery] = useState("");
   const [form] = Form.useForm();
   // OpenRouter filter state
   const isOpenRouter = provider.id === "openrouter";
@@ -377,13 +468,23 @@ export function RemoteModelManageModal({
   const [showFreeOnly, setShowFreeOnly] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
 
-  const [loadingDiscoveredModels, setLoadingDiscoveredModels] = useState(false);
   const PAGE_SIZE = 30;
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
+  const allProviderModels = useMemo(
+    () => [...(provider.extra_models ?? []), ...(provider.models ?? [])],
+    [provider.extra_models, provider.models],
+  );
+  const existingModelIds = useMemo(
+    () => new Set(allProviderModels.map((model) => model.id.trim())),
+    [allProviderModels],
+  );
   // For custom providers ALL models are deletable.
   // For built-in providers only extra_models are deletable.
-  const extraModelIds = new Set((provider.extra_models || []).map((m) => m.id));
+  const extraModelIds = useMemo(
+    () => new Set((provider.extra_models || []).map((m) => m.id)),
+    [provider.extra_models],
+  );
 
   const doAddModel = async (id: string, name: string) => {
     await api.addModel(provider.id, { id, name });
@@ -398,10 +499,9 @@ export function RemoteModelManageModal({
       const values = await form.validateFields();
       const id = values.id.trim();
       const name = values.name?.trim() || id;
-      const modelAlreadyExists = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ].some((model) => model.id.trim() === id);
+      const modelAlreadyExists = allProviderModels.some(
+        (model) => model.id.trim() === id,
+      );
 
       if (modelAlreadyExists) {
         message.warning(t("models.modelAlreadyExists", { id }));
@@ -539,6 +639,10 @@ export function RemoteModelManageModal({
     setConfigOpenModelId(null);
     setModelSearchQuery("");
     setVisibleCount(PAGE_SIZE);
+    setDiscoveryPanelOpen(false);
+    setModelDiscoveryCandidates([]);
+    setSelectedDiscoveredModelIds([]);
+    setDiscoverySearchQuery("");
     form.resetFields();
     onClose();
   };
@@ -611,6 +715,8 @@ export function RemoteModelManageModal({
         supports_image: model.supports_image,
         supports_video: model.supports_video,
         probe_source: model.probe_source,
+        max_tokens: model.max_tokens,
+        max_input_length: model.max_input_length,
       });
       message.success(t("models.modelAdded", { name: model.name }));
       await onSaved();
@@ -622,22 +728,31 @@ export function RemoteModelManageModal({
     }
   };
 
-  const handleAutoDiscoverModels = async () => {
+  const handleFetchModelList = async () => {
     setDiscoveringModels(true);
+    setDiscoveryPanelOpen(true);
     try {
-      const result = await api.discoverModels(provider.id, undefined, true);
+      const result = await api.discoverModels(provider.id, undefined, false);
 
       if (!result.success) {
-        message.error(result.message || t("models.autoDiscoverModelsFailed"));
+        setModelDiscoveryCandidates([]);
+        setSelectedDiscoveredModelIds([]);
+        message.error(result.message || t("models.discoverModelsFailed"));
         return;
       }
 
-      await onSaved();
+      const candidates = normalizeDiscoveredModels(result.models || []);
+      setModelDiscoveryCandidates(candidates);
+      setSelectedDiscoveredModelIds([]);
 
-      if (result.added_count > 0) {
+      const newCount = candidates.filter(
+        (model) => !existingModelIds.has(model.id),
+      ).length;
+      if (newCount > 0) {
         message.success(
-          t("models.autoDiscoverModelsSuccess", {
-            count: result.added_count,
+          t("models.discoverModelsLoaded", {
+            count: candidates.length,
+            newCount,
           }),
         );
         return;
@@ -645,38 +760,77 @@ export function RemoteModelManageModal({
 
       message.info(
         result.message ||
-          t("models.autoDiscoverModelsNoNew", {
-            count: result.models.length,
+          t("models.discoverModelsNoNew", {
+            count: candidates.length,
           }),
       );
     } catch (error) {
       const errMsg =
         error instanceof Error
           ? error.message
-          : t("models.autoDiscoverModelsFailed");
+          : t("models.discoverModelsFailed");
       message.error(errMsg);
     } finally {
       setDiscoveringModels(false);
     }
   };
 
-  useEffect(() => {
-    if (!adding) {
-      setDiscoveredModels([]);
+  const handleDiscoveredModelCheck = (modelId: string, checked: boolean) => {
+    setSelectedDiscoveredModelIds((prev) => {
+      if (checked) {
+        return prev.includes(modelId) ? prev : [...prev, modelId];
+      }
+      return prev.filter((id) => id !== modelId);
+    });
+  };
+
+  const handleAddSelectedDiscoveredModels = async () => {
+    const selectedModels = selectedDiscoveredModelIds
+      .map((id) => modelDiscoveryCandidates.find((model) => model.id === id))
+      .filter(
+        (model): model is ModelInfo =>
+          !!model && !existingModelIds.has(model.id),
+      );
+
+    if (selectedModels.length === 0) {
+      message.warning(t("models.selectDiscoveredModelsFirst"));
       return;
     }
-    setLoadingDiscoveredModels(true);
-    api
-      .discoverModels(provider.id, undefined, false)
-      .then((result) => {
-        const sorted = result.models
-          .slice()
-          .sort((a, b) => a.id.localeCompare(b.id));
-        setDiscoveredModels(sorted as unknown as ExtendedModelInfo[]);
-      })
-      .catch(() => setDiscoveredModels([]))
-      .finally(() => setLoadingDiscoveredModels(false));
-  }, [adding, provider.id]);
+
+    setSavingDiscoveredModels(true);
+    let added = 0;
+    let failed = 0;
+    const addedIds: string[] = [];
+
+    for (const model of selectedModels) {
+      try {
+        await api.addModel(provider.id, toAddModelPayload(model));
+        added += 1;
+        addedIds.push(model.id);
+      } catch {
+        failed += 1;
+      }
+    }
+
+    try {
+      if (added > 0) {
+        message.success(t("models.discoveredModelsAdded", { count: added }));
+        setModelDiscoveryCandidates((prev) =>
+          prev.filter((model) => !addedIds.includes(model.id)),
+        );
+        setSelectedDiscoveredModelIds((prev) =>
+          prev.filter((id) => !addedIds.includes(id)),
+        );
+        await onSaved();
+      }
+      if (failed > 0) {
+        const notify = added > 0 ? message.warning : message.error;
+        notify(t("models.discoveredModelsAddPartialFailed", { count: failed }));
+      }
+    } finally {
+      setSavingDiscoveredModels(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpenRouter || !adding) return;
@@ -685,22 +839,51 @@ export function RemoteModelManageModal({
   }, [adding, form, isOpenRouter]);
 
   const deferredSearchQuery = useDeferredValue(modelSearchQuery);
+  const deferredDiscoverySearchQuery = useDeferredValue(discoverySearchQuery);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [deferredSearchQuery]);
 
   const filteredModels = useMemo(() => {
-    const all_models = [
-      ...(provider.extra_models ?? []),
-      ...(provider.models ?? []),
-    ];
     const q = deferredSearchQuery.trim().toLowerCase();
-    if (!q) return all_models;
-    return all_models.filter(
+    if (!q) return allProviderModels;
+    return allProviderModels.filter(
       (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q),
     );
-  }, [provider.models, provider.extra_models, deferredSearchQuery]);
+  }, [allProviderModels, deferredSearchQuery]);
+
+  const filteredDiscoveryCandidates = useMemo(() => {
+    const q = deferredDiscoverySearchQuery.trim().toLowerCase();
+    const candidates = modelDiscoveryCandidates.filter(
+      (model) => !existingModelIds.has(model.id),
+    );
+    if (!q) return candidates;
+    return candidates.filter(
+      (model) =>
+        model.name.toLowerCase().includes(q) ||
+        model.id.toLowerCase().includes(q),
+    );
+  }, [
+    deferredDiscoverySearchQuery,
+    existingModelIds,
+    modelDiscoveryCandidates,
+  ]);
+
+  const selectedDiscoveredModelCount = useMemo(
+    () =>
+      selectedDiscoveredModelIds.filter((id) =>
+        modelDiscoveryCandidates.some(
+          (model) => model.id === id && !existingModelIds.has(model.id),
+        ),
+      ).length,
+    [existingModelIds, modelDiscoveryCandidates, selectedDiscoveredModelIds],
+  );
+
+  const allFilteredDiscoveryIds = useMemo(
+    () => filteredDiscoveryCandidates.map((model) => model.id),
+    [filteredDiscoveryCandidates],
+  );
 
   const colors = tagColors(isDark);
 
@@ -914,7 +1097,7 @@ export function RemoteModelManageModal({
               >
                 <AutoComplete
                   placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModels.map((model) => ({
+                  options={modelDiscoveryCandidates.map((model) => ({
                     value: model.id,
                     label: model.id,
                   }))}
@@ -927,7 +1110,7 @@ export function RemoteModelManageModal({
                       .includes(inputValue.toLowerCase()) ?? false
                   }
                   notFoundContent={
-                    loadingDiscoveredModels
+                    discoveringModels
                       ? t("common.loading")
                       : t("models.modelDiscoveryUnavailableHint")
                   }
@@ -966,26 +1149,155 @@ export function RemoteModelManageModal({
             </Form>
           </div>
         ) : (
-          <div className={styles.modalActionRow}>
-            {supportsAutoDiscover && (
+          <>
+            {discoveryPanelOpen && (
+              <div className={styles.modelDiscoveryPanel}>
+                <div className={styles.modelDiscoveryHeader}>
+                  <div>
+                    <div className={styles.modelDiscoveryTitle}>
+                      {t("models.discoveredModelsTitle")}
+                    </div>
+                    <div className={styles.modelDiscoveryHint}>
+                      {t("models.discoveredModelsHint")}
+                    </div>
+                  </div>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setDiscoveryPanelOpen(false);
+                      setSelectedDiscoveredModelIds([]);
+                      setDiscoverySearchQuery("");
+                    }}
+                  >
+                    {t("common.close")}
+                  </Button>
+                </div>
+                <div className={styles.modelDiscoveryToolbar}>
+                  <Input
+                    size="small"
+                    placeholder={t("models.searchModelPlaceholder")}
+                    value={discoverySearchQuery}
+                    onChange={(event) =>
+                      setDiscoverySearchQuery(event.target.value)
+                    }
+                    prefix={<SearchOutlined />}
+                    allowClear
+                  />
+                  <div className={styles.modelDiscoveryToolbarActions}>
+                    <Button
+                      size="small"
+                      disabled={allFilteredDiscoveryIds.length === 0}
+                      onClick={() =>
+                        setSelectedDiscoveredModelIds(allFilteredDiscoveryIds)
+                      }
+                    >
+                      {t("models.selectAllDiscoveredModels")}
+                    </Button>
+                    <Button
+                      size="small"
+                      disabled={selectedDiscoveredModelCount === 0}
+                      onClick={() => setSelectedDiscoveredModelIds([])}
+                    >
+                      {t("models.clearDiscoveredSelection")}
+                    </Button>
+                  </div>
+                </div>
+                <div className={styles.modelDiscoveryList}>
+                  {discoveringModels ? (
+                    <div className={styles.modelListEmpty}>
+                      {t("common.loading")}
+                    </div>
+                  ) : filteredDiscoveryCandidates.length === 0 ? (
+                    <div className={styles.modelListEmpty}>
+                      {modelDiscoveryCandidates.length === 0
+                        ? t("models.noDiscoveredModels")
+                        : t("models.noNewDiscoveredModels")}
+                    </div>
+                  ) : (
+                    filteredDiscoveryCandidates.map((model) => (
+                      <div key={model.id} className={styles.modelDiscoveryItem}>
+                        <Checkbox
+                          checked={selectedDiscoveredModelIds.includes(
+                            model.id,
+                          )}
+                          onChange={(event) =>
+                            handleDiscoveredModelCheck(
+                              model.id,
+                              event.target.checked,
+                            )
+                          }
+                        />
+                        <div className={styles.modelDiscoveryItemInfo}>
+                          <span className={styles.modelListItemName}>
+                            {model.name}
+                          </span>
+                          <span className={styles.modelListItemId}>
+                            {model.id}
+                          </span>
+                        </div>
+                        <div className={styles.modelListItemActions}>
+                          <CapabilityTags model={model} isDark={isDark} />
+                          <ModelLimitTags model={model} isDark={isDark} />
+                          {model.is_free && (
+                            <Tag
+                              style={{
+                                fontSize: 11,
+                                marginRight: 4,
+                                ...colors.free,
+                              }}
+                            >
+                              <GiftOutlined
+                                style={{ fontSize: 10, marginRight: 3 }}
+                              />
+                              {t("models.free")}
+                            </Tag>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className={styles.modelDiscoveryFooter}>
+                  <span>
+                    {t("models.selectedDiscoveredModels", {
+                      count: selectedDiscoveredModelCount,
+                    })}
+                  </span>
+                  <Button
+                    type="primary"
+                    size="small"
+                    loading={savingDiscoveredModels}
+                    disabled={selectedDiscoveredModelCount === 0}
+                    onClick={handleAddSelectedDiscoveredModels}
+                  >
+                    {t("models.addSelectedDiscoveredModels", {
+                      count: selectedDiscoveredModelCount,
+                    })}
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className={styles.modalActionRow}>
+              {supportsAutoDiscover && (
+                <Button
+                  icon={<SearchOutlined />}
+                  loading={discoveringModels}
+                  onClick={handleFetchModelList}
+                  style={{ flex: 1 }}
+                >
+                  {t("models.fetchModelList")}
+                </Button>
+              )}
               <Button
-                icon={<SearchOutlined />}
-                loading={discoveringModels}
-                onClick={handleAutoDiscoverModels}
+                type="dashed"
+                icon={<PlusOutlined />}
+                onClick={() => setAdding(true)}
                 style={{ flex: 1 }}
               >
-                {t("models.autoDiscoverModels")}
+                {t("models.addModel")}
               </Button>
-            )}
-            <Button
-              type="dashed"
-              icon={<PlusOutlined />}
-              onClick={() => setAdding(true)}
-              style={{ flex: 1 }}
-            >
-              {t("models.addModel")}
-            </Button>
-          </div>
+            </div>
+          </>
         ))}
     </Modal>
   );

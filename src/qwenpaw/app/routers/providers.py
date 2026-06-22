@@ -128,6 +128,16 @@ class AddModelRequest(BaseModel):
         default=None,
         description="Source of capability metadata",
     )
+    max_tokens: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Maximum output tokens per response.",
+    )
+    max_input_length: Optional[int] = Field(
+        default=None,
+        ge=1000,
+        description="Maximum input context window size (tokens).",
+    )
 
 
 class ModelConfigRequest(BaseModel):
@@ -475,17 +485,23 @@ async def add_model_endpoint(
     body: AddModelRequest = Body(...),
 ) -> ProviderInfo:
     try:
+        model_payload = {
+            "id": body.id,
+            "name": body.name,
+            "supports_multimodal": body.supports_multimodal,
+            "supports_image": body.supports_image,
+            "supports_video": body.supports_video,
+            "probe_source": body.probe_source,
+            "is_free": body.is_free,
+        }
+        if body.max_tokens is not None:
+            model_payload["max_tokens"] = body.max_tokens
+        if body.max_input_length is not None:
+            model_payload["max_input_length"] = body.max_input_length
+
         provider = await manager.add_model_to_provider(
             provider_id=provider_id,
-            model_info=ModelInfo(
-                id=body.id,
-                name=body.name,
-                supports_multimodal=body.supports_multimodal,
-                supports_image=body.supports_image,
-                supports_video=body.supports_video,
-                probe_source=body.probe_source,
-                is_free=body.is_free,
-            ),
+            model_info=ModelInfo(**model_payload),
         )  # Validate provider exists and add model
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

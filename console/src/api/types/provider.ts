@@ -110,6 +110,8 @@ export interface AddModelRequest {
   supports_image?: boolean | null;
   supports_video?: boolean | null;
   probe_source?: string | null;
+  max_tokens?: number;
+  max_input_length?: number;
 }
 
 export interface ModelConfigRequest {
@@ -227,6 +229,8 @@ export interface ExtendedModelInfo {
   supports_video?: boolean | null;
   probe_source?: string | null;
   is_free?: boolean;
+  max_tokens?: number;
+  max_input_length?: number;
   provider: string;
   input_modalities: string[];
   output_modalities: string[];

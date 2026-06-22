@@ -28,6 +28,7 @@ from .openai_provider import (
     KiloProvider,
 )
 from .lmstudio_provider import LMStudioProvider
+from .models_dev import enrich_models_with_models_dev_metadata
 from .provider import (
     ModelInfo,
     Provider,
@@ -1443,6 +1444,10 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return []
         try:
             models = await provider.fetch_models()
+            models = await enrich_models_with_models_dev_metadata(
+                provider,
+                models,
+            )
             if save:
                 provider.extra_models = models
                 # Save provider config to appropriate location
@@ -1494,6 +1499,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # For custom providers, we assume they don't support connection check
         # without model config, to avoid false negatives in the UI.
         provider.support_connection_check = False
+        provider.support_model_discovery = True
         self.custom_providers[provider.id] = provider
         self._save_provider(provider, is_builtin=False)
         return await provider.get_info()
@@ -2122,6 +2128,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
             if provider:
+                provider.support_model_discovery = True
                 self.custom_providers[provider.id] = provider
         # Load active model config
         active_model = self.load_active_model()

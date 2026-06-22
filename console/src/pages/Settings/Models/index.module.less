@@ -1655,6 +1655,113 @@
   justify-content: flex-end;
 }
 
+.modelDiscoveryPanel {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #e8ebf2;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+
+.modelDiscoveryHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.modelDiscoveryTitle {
+  color: #1a1a1a;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.modelDiscoveryHint {
+  margin-top: 2px;
+  color: #7a7f8f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.modelDiscoveryToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.modelDiscoveryToolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.modelDiscoveryList {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #eef0f5;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.modelDiscoveryItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f4f8;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: #fafafa;
+  }
+}
+
+.modelDiscoveryItemInfo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.modelDiscoveryFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #7a7f8f;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .modelDiscoveryToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modelDiscoveryToolbarActions {
+    justify-content: flex-end;
+  }
+
+  .modelDiscoveryItem {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .modelDiscoveryFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .localStatusCard {
   margin-top: 12px;
   padding: 16px;
@@ -2297,6 +2404,33 @@
   .modelAddForm {
     background: rgba(255, 255, 255, 0.03);
     border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .modelDiscoveryPanel {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .modelDiscoveryTitle {
+    color: rgba(255, 255, 255, 0.86);
+  }
+
+  .modelDiscoveryHint,
+  .modelDiscoveryFooter {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .modelDiscoveryList {
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modelDiscoveryItem {
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.04);
+    }
   }
 
   /* Provider cards */
