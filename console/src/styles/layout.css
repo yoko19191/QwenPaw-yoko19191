@@ -982,6 +982,7 @@ html.dark-mode .qwenpaw-sender-content {
 }
 
 .page-container {
+  position: relative;
   height: 100%;
   overflow: hidden;
   display: flex;

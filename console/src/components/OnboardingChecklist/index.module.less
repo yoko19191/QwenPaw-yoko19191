@@ -1,9 +1,17 @@
 .onboardingChecklist {
-  margin: 12px 32px 0;
+  position: absolute;
+  top: 12px;
+  left: 32px;
+  right: 40px;
+  z-index: 100;
+  margin: 0;
   padding: 12px;
   border: 1px solid rgba(46, 125, 50, 0.2);
   border-radius: 8px;
   background: #f7fbf7;
+  box-shadow: 0 18px 48px rgba(23, 40, 24, 0.16);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
 }
 
 .header {
@@ -72,7 +80,10 @@
 
 @media (max-width: 760px) {
   .onboardingChecklist {
-    margin: 10px 14px 0;
+    top: 10px;
+    left: 14px;
+    right: 22px;
+    max-height: calc(100% - 20px);
   }
 
   .header,
@@ -85,6 +96,7 @@
   .onboardingChecklist {
     border-color: rgba(129, 199, 132, 0.22);
     background: rgba(76, 175, 80, 0.08);
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   }
 
   .title,
