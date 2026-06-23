@@ -59,6 +59,20 @@ describe("providerApi", () => {
     });
   });
 
+  it("setActiveLlm includes global fallback models", async () => {
+    const body = {
+      provider_id: "openai",
+      model: "gpt-5",
+      scope: "global" as const,
+      fallback_llms: [{ provider_id: "dashscope", model: "qwen3-max" }],
+    };
+    await providerApi.setActiveLlm(body);
+    expect(request).toHaveBeenCalledWith("/models/active", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  });
+
   it("configureProvider encodes providerId and sends PUT", async () => {
     await providerApi.configureProvider("open/ai", { api_key: "sk-xxx" });
     expect(request).toHaveBeenCalledWith(

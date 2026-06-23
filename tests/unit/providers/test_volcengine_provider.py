@@ -10,8 +10,6 @@ from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import (
     PROVIDER_VOLCENGINE_CN,
     PROVIDER_VOLCENGINE_CN_CODINGPLAN,
-    VOLCENGINE_CODINGPLAN_MODELS,
-    VOLCENGINE_MODELS,
     ProviderManager,
 )
 
@@ -32,7 +30,7 @@ def test_volcengine_provider_configs() -> None:
     )
     assert PROVIDER_VOLCENGINE_CN.freeze_url is True
     assert PROVIDER_VOLCENGINE_CN.support_connection_check is True
-    assert PROVIDER_VOLCENGINE_CN.support_model_discovery is False
+    assert PROVIDER_VOLCENGINE_CN.support_model_discovery is True
 
     assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.id == "volcengine-cn-codingplan"
     assert (
@@ -44,15 +42,13 @@ def test_volcengine_provider_configs() -> None:
     )
     assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.freeze_url is True
     assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.support_connection_check is False
-    assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.support_model_discovery is False
+    assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.support_model_discovery is True
 
 
-def test_volcengine_models_list() -> None:
-    """Verify Volcano Engine model definitions."""
-    model_ids = [m.id for m in VOLCENGINE_MODELS]
-    assert "doubao-seed-2-0-code-preview-260215" in model_ids
-    assert len(VOLCENGINE_MODELS) == 9
-    assert len(VOLCENGINE_CODINGPLAN_MODELS) == 10
+def test_volcengine_models_are_discovered_dynamically() -> None:
+    """Volcano Engine providers should not ship hard-coded model IDs."""
+    assert PROVIDER_VOLCENGINE_CN.models == []
+    assert PROVIDER_VOLCENGINE_CN_CODINGPLAN.models == []
 
 
 @pytest.fixture
@@ -84,8 +80,8 @@ def test_volcengine_registered_in_provider_manager(
     )
 
 
-def test_volcengine_has_expected_models(isolated_secret_dir) -> None:
-    """Volcano Engine providers should include built-in models."""
+def test_volcengine_registered_without_hardcoded_models(isolated_secret_dir) -> None:
+    """Volcano Engine providers should rely on API/models.dev discovery."""
     manager = ProviderManager()
     provider_cn = manager.get_provider("volcengine-cn")
     provider_codingplan = manager.get_provider(
@@ -95,5 +91,7 @@ def test_volcengine_has_expected_models(isolated_secret_dir) -> None:
     assert provider_cn is not None
     assert provider_codingplan is not None
 
-    assert provider_cn.has_model("doubao-seed-2-0-code-preview-260215")
-    assert provider_codingplan.has_model("doubao-seed-2-0-code-preview-260215")
+    assert provider_cn.models == []
+    assert provider_codingplan.models == []
+    assert provider_cn.support_model_discovery is True
+    assert provider_codingplan.support_model_discovery is True

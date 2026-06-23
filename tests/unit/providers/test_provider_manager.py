@@ -11,6 +11,7 @@ from agentscope_runtime.engine.schemas.exception import (
 )
 
 import qwenpaw.providers.provider_manager as provider_manager_module
+import qwenpaw.providers.models_dev as models_dev_module
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.anthropic_provider import AnthropicProvider
 from qwenpaw.config.config import ModelSlotConfig
@@ -18,7 +19,6 @@ from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.local_models.llamacpp import LlamaCppServerSetupResult
-
 
 LEGACY_PROVIDER = {
     "providers": {
@@ -88,6 +88,18 @@ def isolated_secret_dir(monkeypatch, tmp_path):
     return secret_dir
 
 
+async def _add_models(
+    manager: ProviderManager,
+    provider_id: str,
+    *model_ids: str,
+) -> None:
+    for model_id in model_ids:
+        await manager.add_model_to_provider(
+            provider_id,
+            ModelInfo(id=model_id, name=model_id),
+        )
+
+
 def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
     manager = ProviderManager()
 
@@ -117,13 +129,25 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         assert isinstance(provider, OpenAIProvider)
         assert provider.base_url == expected["base_url"]
         assert provider.freeze_url is True
-        assert (
-            provider.support_connection_check
-            == expected["support_connection_check"]
-        )
-        model_ids = [m.id for m in provider.models]
-        assert len(model_ids) > 0
-        assert len(model_ids) == len(set(model_ids))
+        assert provider.support_connection_check == expected["support_connection_check"]
+        assert provider.support_model_discovery is True
+        assert provider.models == []
+
+
+def test_cloud_builtin_providers_are_discovery_only(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+
+    cloud_providers = [
+        provider
+        for provider in manager.builtin_providers.values()
+        if not provider.is_local
+    ]
+
+    assert cloud_providers
+    assert all(provider.support_model_discovery for provider in cloud_providers)
+    assert all(provider.models == [] for provider in cloud_providers)
 
 
 async def test_add_custom_provider_and_reload_from_storage(
@@ -167,6 +191,40 @@ async def test_add_custom_provider_and_reload_from_storage(
     assert isinstance(loaded_duplicate, OpenAIProvider)
 
 
+async def test_codex_oauth_discovery_does_not_merge_models_dev(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    manager.update_provider(
+        "openai",
+        {
+            "api_key": "access-token",
+            "auth_mode": "codex_oauth",
+            "oauth_refresh_token": "refresh-token",
+        },
+    )
+
+    async def fake_fetch_models(self):
+        return [ModelInfo(id="gpt-codex-live", name="gpt-codex-live")]
+
+    async def fake_models_dev(provider, provider_api_models):
+        return provider_api_models + [
+            ModelInfo(id="gpt-public-api", name="gpt-public-api"),
+        ]
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", fake_fetch_models)
+    monkeypatch.setattr(
+        provider_manager_module,
+        "discover_models_with_models_dev_fallback",
+        fake_models_dev,
+    )
+
+    models = await manager.fetch_provider_models("openai")
+
+    assert [model.id for model in models] == ["gpt-codex-live"]
+
+
 async def test_activate_provider_persists_active_model(
     isolated_secret_dir,
     monkeypatch,
@@ -187,6 +245,7 @@ async def test_activate_provider_persists_active_model(
         lambda self, timeout=5: fake_client,
     )
 
+    await _add_models(manager, "openai", "gpt-5")
     await manager.activate_model("openai", "gpt-5")
 
     assert manager.active_model is not None
@@ -197,6 +256,169 @@ async def test_activate_provider_persists_active_model(
     assert reloaded.active_model is not None
     assert reloaded.active_model.provider_id == "openai"
     assert reloaded.active_model.model == "gpt-5"
+
+
+async def test_active_model_fallbacks_persist_and_dedupe(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await _add_models(manager, "openai", "gpt-5", "gpt-5-mini")
+    await _add_models(manager, "dashscope", "qwen3-max")
+
+    await manager.activate_model(
+        "openai",
+        "gpt-5",
+        fallback_models=[
+            ModelSlotConfig(provider_id="openai", model="gpt-5"),
+            ModelSlotConfig(provider_id="openai", model="gpt-5-mini"),
+            ModelSlotConfig(provider_id="openai", model="gpt-5-mini"),
+            ModelSlotConfig(provider_id="dashscope", model="qwen3-max"),
+        ],
+    )
+
+    assert [
+        (slot.provider_id, slot.model) for slot in manager.get_active_model_fallbacks()
+    ] == [
+        ("openai", "gpt-5-mini"),
+        ("dashscope", "qwen3-max"),
+    ]
+
+    reloaded = ProviderManager()
+    assert [
+        (slot.provider_id, slot.model) for slot in reloaded.get_active_model_fallbacks()
+    ] == [
+        ("openai", "gpt-5-mini"),
+        ("dashscope", "qwen3-max"),
+    ]
+
+
+async def test_active_model_fallbacks_reject_unknown_model(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await _add_models(manager, "openai", "gpt-5", "gpt-5-mini")
+    await manager.activate_model("openai", "gpt-5")
+
+    with pytest.raises(ModelNotFoundException):
+        manager.set_active_model_fallbacks(
+            [
+                ModelSlotConfig(
+                    provider_id="openai",
+                    model="missing-model",
+                ),
+            ],
+        )
+
+    with pytest.raises(ModelNotFoundException):
+        await manager.activate_model(
+            "openai",
+            "gpt-5-mini",
+            fallback_models=[
+                ModelSlotConfig(
+                    provider_id="openai",
+                    model="missing-model",
+                ),
+            ],
+        )
+
+    assert manager.get_active_model().model == "gpt-5"
+
+
+async def test_remove_custom_provider_prunes_fallbacks(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await _add_models(manager, "openai", "gpt-5")
+    await manager.add_custom_provider(
+        OpenAIProvider(
+            id="custom-fallback",
+            name="Custom Fallback",
+            base_url="https://custom.example/v1",
+            models=[ModelInfo(id="custom-model", name="Custom Model")],
+        ),
+    )
+    await manager.activate_model(
+        "openai",
+        "gpt-5",
+        fallback_models=[
+            ModelSlotConfig(
+                provider_id="custom-fallback",
+                model="custom-model",
+            ),
+        ],
+    )
+
+    assert len(manager.get_active_model_fallbacks()) == 1
+
+    manager.remove_custom_provider("custom-fallback")
+
+    assert manager.get_active_model_fallbacks() == []
+
+
+async def test_delete_extra_model_prunes_fallbacks(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    await _add_models(manager, "openai", "gpt-5")
+    await manager.add_model_to_provider(
+        "openai",
+        ModelInfo(id="extra-fallback", name="Extra Fallback"),
+    )
+    await manager.activate_model(
+        "openai",
+        "gpt-5",
+        fallback_models=[
+            ModelSlotConfig(provider_id="openai", model="extra-fallback"),
+        ],
+    )
+
+    await manager.delete_model_from_provider("openai", "extra-fallback")
+
+    assert manager.get_active_model_fallbacks() == []
+
+
+async def test_fetch_provider_models_falls_back_to_models_dev(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+
+    async def empty_provider_api(*args, **kwargs):
+        del args, kwargs
+        return []
+
+    async def fake_catalog(*args, **kwargs):
+        del args, kwargs
+        return {
+            "openai": {
+                "models": {
+                    "gpt-5-mini": {
+                        "id": "gpt-5-mini",
+                        "name": "GPT-5 Mini",
+                        "limit": {"context": 400000, "output": 128000},
+                        "modalities": {
+                            "input": ["text"],
+                            "output": ["text"],
+                        },
+                    },
+                },
+            },
+        }
+
+    monkeypatch.setattr(OpenAIProvider, "fetch_models", empty_provider_api)
+    monkeypatch.setattr(
+        models_dev_module,
+        "fetch_models_dev_catalog",
+        fake_catalog,
+    )
+
+    models = await manager.fetch_provider_models("openai", save=False)
+
+    assert [model.id for model in models] == ["gpt-5-mini"]
+    assert models[0].max_input_length == 400000
+    assert provider.extra_models == []
 
 
 async def test_resume_local_model_restores_server_and_runtime_state(
@@ -551,9 +773,7 @@ def test_init_from_storage_migrates_with_different_provider(
     )
     manager = ProviderManager()
     assert manager.get_provider("ollama") is not None
-    assert (
-        manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
-    )
+    assert manager.get_provider("ollama").base_url == "http://legacy-ollama:11434"
 
 
 def test_provider_group_metadata(isolated_secret_dir) -> None:

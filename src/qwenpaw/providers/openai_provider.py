@@ -14,6 +14,11 @@ from agentscope.model import ChatModelBase
 from openai import APIError
 
 from qwenpaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers.openai_codex import (
+    fetch_codex_models,
+    refresh_codex_tokens,
+    token_expires_soon,
+)
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
@@ -45,6 +50,9 @@ else:
 
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
+
+    def _is_codex_oauth(self) -> bool:
+        return self.id == "openai" and self.auth_mode == "codex_oauth"
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -84,6 +92,16 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
+        if self._is_codex_oauth():
+            if not self.api_key:
+                return False, "Codex OAuth is not connected"
+            try:
+                await self._refresh_codex_token_if_needed()
+                models = await fetch_codex_models(self.api_key, timeout=timeout)
+                return (bool(models), "" if models else "No Codex models returned")
+            except Exception:
+                return False, "API error when connecting to Codex OAuth"
+
         client = self._client()
         try:
             await client.models.list(timeout=timeout)
@@ -98,6 +116,15 @@ class OpenAIProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
+        if self._is_codex_oauth():
+            if not self.api_key:
+                return []
+            try:
+                await self._refresh_codex_token_if_needed()
+                return await fetch_codex_models(self.api_key, timeout=timeout)
+            except Exception:
+                return []
+
         try:
             client = self._client(timeout=timeout)
             payload = await client.models.list(timeout=timeout)
@@ -117,6 +144,23 @@ class OpenAIProvider(Provider):
         model_id = (model_id or "").strip()
         if not model_id:
             return False, "Empty model ID"
+
+        if self._is_codex_oauth():
+            try:
+                model = self.get_chat_model_instance(model_id)
+                response = await model(
+                    messages=[{"role": "user", "content": "ping"}],
+                    timeout=timeout,
+                )
+                if hasattr(response, "__aiter__"):
+                    async for _ in response:
+                        break
+                return True, ""
+            except Exception:
+                return (
+                    False,
+                    f"API error when connecting to Codex model '{model_id}'",
+                )
 
         try:
             client = self._client(timeout=timeout)
@@ -150,6 +194,19 @@ class OpenAIProvider(Provider):
             )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        if self._is_codex_oauth():
+            from .openai_codex_chat_model import CodexResponsesChatModelCompat
+
+            return CodexResponsesChatModelCompat(
+                model_name=model_id,
+                provider_id=self.id,
+                api_key=self.api_key,
+                oauth_refresh_token=self.oauth_refresh_token,
+                oauth_expires_at=self.oauth_expires_at,
+                stream=True,
+                generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            )
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
         client_kwargs: dict = {"base_url": self.base_url}
@@ -190,6 +247,24 @@ class OpenAIProvider(Provider):
             client_kwargs=client_kwargs,
             generate_kwargs=self.get_effective_generate_kwargs(model_id),
         )
+
+    async def _refresh_codex_token_if_needed(self) -> None:
+        if not self._is_codex_oauth():
+            return
+        if not token_expires_soon(self.oauth_expires_at):
+            return
+        if not self.oauth_refresh_token:
+            return
+        updates = await refresh_codex_tokens(self.oauth_refresh_token)
+        access_token = str(updates.get("api_key") or "").strip()
+        if access_token:
+            self.api_key = access_token
+        refresh_token = str(updates.get("oauth_refresh_token") or "").strip()
+        if refresh_token:
+            self.oauth_refresh_token = refresh_token
+        expires_at = updates.get("oauth_expires_at")
+        if isinstance(expires_at, (int, float)):
+            self.oauth_expires_at = float(expires_at)
 
     async def probe_model_multimodal(
         self,

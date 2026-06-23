@@ -53,6 +53,7 @@ class ActiveModelsInfo(BaseModel):
     """Active models information for provider manager."""
 
     active_llm: ModelSlotConfig | None
+    fallback_llms: List[ModelSlotConfig] = Field(default_factory=list)
 
 
 class ACPAgentConfig(BaseModel):

@@ -22,6 +22,7 @@ import type {
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
+import { OAuthConfirmModal } from "../../../../Chat/ModelSelector/OAuthConfirmModal";
 import styles from "../../index.module.less";
 
 interface ProviderConfigFormValues
@@ -272,7 +273,8 @@ interface ProviderConfigModalProps {
     support_connection_check: boolean;
     generate_kwargs: Record<string, unknown>;
     custom_headers?: Record<string, string>;
-    auth_mode?: "api_key" | "auth_token";
+    auth_mode?: "api_key" | "auth_token" | "codex_oauth";
+    oauth_connected?: boolean;
     meta?: Record<string, unknown>;
   };
   activeModels: any;
@@ -293,11 +295,12 @@ export function ProviderConfigModal({
   const [testing, setTesting] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [oauthModalOpen, setOauthModalOpen] = useState(false);
   const [form] = Form.useForm<ProviderConfigFormValues>();
   const { message } = useAppMessage();
-  const [authMode, setAuthMode] = useState<"api_key" | "auth_token">(
-    provider.auth_mode ?? "api_key",
-  );
+  const [authMode, setAuthMode] = useState<
+    "api_key" | "auth_token" | "codex_oauth"
+  >(provider.auth_mode ?? "api_key");
   const [customHeaders, setCustomHeaders] = useState<HeaderEntry[]>(
     Object.entries(provider.custom_headers ?? {}).map(([key, value]) => ({
       key,
@@ -305,7 +308,9 @@ export function ProviderConfigModal({
     })),
   );
   const selectedChatModel = Form.useWatch("chat_model", form);
-  const canEditBaseUrl = !provider.freeze_url;
+  const isOpenAIProvider = provider.id === "openai";
+  const isCodexOAuthMode = isOpenAIProvider && authMode === "codex_oauth";
+  const canEditBaseUrl = !provider.freeze_url && !isCodexOAuthMode;
 
   const baseUrlOptions = useMemo<BaseUrlOption[]>(() => {
     const raw = provider.meta?.base_url_options;
@@ -470,6 +475,24 @@ export function ProviderConfigModal({
 
   const handleSubmit = async () => {
     try {
+      if (isCodexOAuthMode) {
+        if (!provider.oauth_connected) {
+          message.warning(t("models.codexOAuthLoginRequired"));
+          return;
+        }
+        setSaving(true);
+        await api.configureProvider(provider.id, {
+          auth_mode: "codex_oauth",
+        });
+        await onSaved();
+        setFormDirty(false);
+        onClose();
+        message.success(
+          t("models.configurationSaved", { name: provider.name }),
+        );
+        return;
+      }
+
       const values = await form.validateFields();
       setSaving(true);
       const generateConfig = parseGenerateConfig(values.generate_kwargs_text);
@@ -514,7 +537,8 @@ export function ProviderConfigModal({
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
         custom_headers: headersObj,
-        auth_mode: isAnthropicProvider ? authMode : undefined,
+        auth_mode:
+          isAnthropicProvider || isOpenAIProvider ? authMode : undefined,
       });
 
       await onSaved();
@@ -534,6 +558,18 @@ export function ProviderConfigModal({
   const handleTest = async () => {
     setTesting(true);
     try {
+      if (isCodexOAuthMode) {
+        const result = await api.testProviderConnection(provider.id, {
+          auth_mode: "codex_oauth",
+        });
+        if (result.success) {
+          message.success(getLocalizedTestConnectionMessage(result, t));
+        } else {
+          message.warning(getLocalizedTestConnectionMessage(result, t));
+        }
+        return;
+      }
+
       const values = await form.validateFields([
         "api_key",
         "base_url",
@@ -585,7 +621,10 @@ export function ProviderConfigModal({
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
-          await api.configureProvider(provider.id, { api_key: "" });
+          await api.configureProvider(provider.id, {
+            api_key: "",
+            auth_mode: provider.id === "openai" ? "api_key" : undefined,
+          });
           await onSaved();
           onClose();
           if (isActiveLlmProvider) {
@@ -688,88 +727,143 @@ export function ProviderConfigModal({
           </Form.Item>
         )}
 
+        {isOpenAIProvider && (
+          <Form.Item
+            label={t("models.openAIAuthMethod")}
+            extra={
+              authMode === "codex_oauth"
+                ? t("models.codexOAuthHint")
+                : t("models.openAIKeyHint")
+            }
+          >
+            <Radio.Group
+              value={authMode}
+              onChange={(e) => {
+                setAuthMode(e.target.value);
+                setFormDirty(true);
+              }}
+            >
+              <Radio value="api_key">{t("models.openAIAuthApiKey")}</Radio>
+              <Radio value="codex_oauth">
+                {t("models.openAIAuthCodexOAuth")}
+              </Radio>
+            </Radio.Group>
+          </Form.Item>
+        )}
+
+        {isCodexOAuthMode && (
+          <div className={styles.codexOAuthPanel}>
+            <div className={styles.codexOAuthStatus}>
+              <span
+                className={
+                  provider.oauth_connected
+                    ? styles.codexOAuthStatusDotConnected
+                    : styles.codexOAuthStatusDot
+                }
+              />
+              <span>
+                {provider.oauth_connected
+                  ? t("models.codexOAuthConnected")
+                  : t("models.codexOAuthNotConnected")}
+              </span>
+            </div>
+            <Button
+              type={provider.oauth_connected ? "default" : "primary"}
+              onClick={() => setOauthModalOpen(true)}
+            >
+              {provider.oauth_connected
+                ? t("models.codexOAuthRelogin")
+                : t("models.codexOAuthLogin")}
+            </Button>
+          </div>
+        )}
+
         {/* Base URL */}
-        <Form.Item
-          name="base_url"
-          label={t("models.baseURL")}
-          rules={
-            canEditBaseUrl
-              ? [
-                  ...(!provider.freeze_url
-                    ? [
-                        {
-                          required: true,
-                          message: t("models.pleaseEnterBaseURL"),
-                        },
-                      ]
-                    : []),
-                  {
-                    validator: (_: unknown, value: string) => {
-                      if (!value || !value.trim()) return Promise.resolve();
-                      try {
-                        const url = new URL(value.trim());
-                        if (!["http:", "https:"].includes(url.protocol)) {
+        {!isCodexOAuthMode && (
+          <Form.Item
+            name="base_url"
+            label={t("models.baseURL")}
+            rules={
+              canEditBaseUrl
+                ? [
+                    ...(!provider.freeze_url
+                      ? [
+                          {
+                            required: true,
+                            message: t("models.pleaseEnterBaseURL"),
+                          },
+                        ]
+                      : []),
+                    {
+                      validator: (_: unknown, value: string) => {
+                        if (!value || !value.trim()) return Promise.resolve();
+                        try {
+                          const url = new URL(value.trim());
+                          if (!["http:", "https:"].includes(url.protocol)) {
+                            return Promise.reject(
+                              new Error(t("models.pleaseEnterValidURL")),
+                            );
+                          }
+                          return Promise.resolve();
+                        } catch {
                           return Promise.reject(
                             new Error(t("models.pleaseEnterValidURL")),
                           );
                         }
-                        return Promise.resolve();
-                      } catch {
-                        return Promise.reject(
-                          new Error(t("models.pleaseEnterValidURL")),
-                        );
-                      }
+                      },
                     },
-                  },
-                ]
-              : []
-          }
-          extra={baseUrlExtra}
-        >
-          {useBaseUrlSelect ? (
-            <Select
-              options={baseUrlOptions.map((option) => ({
-                label: `${option.label} — ${option.value}`,
-                value: option.value,
-              }))}
-              placeholder={t("models.selectBaseURL")}
-            />
-          ) : (
-            <Input
-              placeholder={baseUrlPlaceholder}
-              disabled={!canEditBaseUrl}
-            />
-          )}
-        </Form.Item>
+                  ]
+                : []
+            }
+            extra={baseUrlExtra}
+          >
+            {useBaseUrlSelect ? (
+              <Select
+                options={baseUrlOptions.map((option) => ({
+                  label: `${option.label} — ${option.value}`,
+                  value: option.value,
+                }))}
+                placeholder={t("models.selectBaseURL")}
+              />
+            ) : (
+              <Input
+                placeholder={baseUrlPlaceholder}
+                disabled={!canEditBaseUrl}
+              />
+            )}
+          </Form.Item>
+        )}
 
         {/* API Key */}
-        <Form.Item
-          name="api_key"
-          label={apiKeyLabel}
-          rules={[
-            {
-              validator: (_, value) => {
-                if (
-                  value &&
-                  provider.api_key_prefix &&
-                  authMode !== "auth_token" &&
-                  !value.startsWith(provider.api_key_prefix)
-                ) {
-                  return Promise.reject(
-                    new Error(
-                      t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
-                      }),
-                    ),
-                  );
-                }
-                return Promise.resolve();
+        {!isCodexOAuthMode && (
+          <Form.Item
+            name="api_key"
+            label={apiKeyLabel}
+            rules={[
+              {
+                validator: (_, value) => {
+                  if (
+                    value &&
+                    provider.api_key_prefix &&
+                    authMode !== "auth_token" &&
+                    !value.startsWith(provider.api_key_prefix)
+                  ) {
+                    return Promise.reject(
+                      new Error(
+                        t("models.apiKeyShouldStart", {
+                          prefix: provider.api_key_prefix,
+                        }),
+                      ),
+                    );
+                  }
+                  return Promise.resolve();
+                },
               },
-            },
-          ]}
-        >
-          <Input.Password placeholder={apiKeyPlaceholder} />
-        </Form.Item>
+            ]}
+          >
+            <Input.Password placeholder={apiKeyPlaceholder} />
+          </Form.Item>
+        )}
 
         <div className={styles.advancedConfigSection}>
           <button
@@ -892,6 +986,17 @@ export function ProviderConfigModal({
           </Form.Item>
         </div>
       </Form>
+      <OAuthConfirmModal
+        open={oauthModalOpen}
+        providerId={provider.id}
+        providerName={provider.name}
+        onSuccess={async () => {
+          setOauthModalOpen(false);
+          setFormDirty(false);
+          await onSaved();
+        }}
+        onCancel={() => setOauthModalOpen(false)}
+      />
     </Modal>
   );
 }

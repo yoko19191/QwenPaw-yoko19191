@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,8 +14,9 @@ from pydantic import BaseModel, Field
 from ...providers.oauth import (
     OAuthSessionStore,
     OpenRouterOAuthFlow,
+    OpenAICodexOAuthFlow,
 )
-from ...providers.oauth.base import OAuthFlow
+from ...providers.oauth.base import OAuthFlow, OAuthTokenResult
 from ...providers.provider_manager import ProviderManager
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,7 @@ _session_store = OAuthSessionStore()
 # Registry of OAuth flows by provider_id
 _OAUTH_FLOWS: dict[str, OAuthFlow] = {
     "openrouter": OpenRouterOAuthFlow(),
+    "openai": OpenAICodexOAuthFlow(),
 }
 
 
@@ -78,6 +81,22 @@ class OAuthStartResponse(BaseModel):
         default="browser_redirect",
         description="browser_redirect or device_code",
     )
+    user_code: Optional[str] = Field(
+        default=None,
+        description="Device-code user code",
+    )
+    verification_url: Optional[str] = Field(
+        default=None,
+        description="Device-code verification URL",
+    )
+    expires_in: Optional[int] = Field(
+        default=None,
+        description="Device-code expiration in seconds",
+    )
+    poll_interval: Optional[int] = Field(
+        default=None,
+        description="Suggested polling interval in seconds",
+    )
 
 
 class OAuthStatusResponse(BaseModel):
@@ -85,7 +104,7 @@ class OAuthStatusResponse(BaseModel):
 
     status: str = Field(
         ...,
-        description="pending, completed, or failed",
+        description="pending, completed, failed, or expired",
     )
     error: Optional[str] = Field(
         default=None,
@@ -104,24 +123,130 @@ class OAuthStatusResponse(BaseModel):
 async def start_oauth(
     provider_id: str,
     request: Request,
+    manager: ProviderManager = Depends(_get_provider_manager),
 ) -> OAuthStartResponse:
     """Start OAuth flow. Returns authorize_url for browser popup."""
     flow = _get_flow(provider_id)
     callback_url = _build_callback_url(request, provider_id)
-    result = flow.start(callback_url)
+    try:
+        result = flow.start(callback_url)
+    except Exception as exc:
+        logger.exception("OAuth start failed for %s", provider_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     _session_store.create(
         provider_id=provider_id,
         state=result.state,
         code_verifier="",
         callback_url=callback_url,
+        data={
+            "device_auth_id": result.device_auth_id,
+            "user_code": result.user_code,
+            "poll_interval": result.poll_interval,
+        },
+        expires_in=result.expires_in,
     )
+
+    if result.flow_type == "device_code":
+        asyncio.create_task(
+            _complete_device_code_flow(
+                provider_id=provider_id,
+                state=result.state,
+                flow=flow,
+                manager=manager,
+                expires_in=result.expires_in or 15 * 60,
+                poll_interval=result.poll_interval or 5,
+            ),
+            name=f"provider-oauth-{provider_id}-{result.state[:8]}",
+        )
 
     return OAuthStartResponse(
         authorize_url=result.authorize_url,
         state=result.state,
         flow_type=result.flow_type,
+        user_code=result.user_code,
+        verification_url=result.verification_url,
+        expires_in=result.expires_in,
+        poll_interval=result.poll_interval,
     )
+
+
+async def _save_oauth_credentials(
+    *,
+    provider_id: str,
+    flow: OAuthFlow,
+    token_result: OAuthTokenResult,
+    manager: ProviderManager,
+    session_state: str,
+) -> bool:
+    """Persist OAuth credentials and discover models."""
+    credential = flow.get_credential_dict(token_result)
+    if not credential:
+        _session_store.fail(session_state, "No credentials returned")
+        return False
+
+    if not manager.update_provider(provider_id, credential):
+        _session_store.fail(session_state, "Provider not found")
+        return False
+
+    try:
+        await manager.fetch_provider_models(provider_id)
+    except Exception:
+        logger.warning(
+            "Model discovery failed for %s after OAuth, will retry on next list",
+            provider_id,
+        )
+    _session_store.complete(session_state, credential)
+    return True
+
+
+async def _complete_device_code_flow(
+    *,
+    provider_id: str,
+    state: str,
+    flow: OAuthFlow,
+    manager: ProviderManager,
+    expires_in: int,
+    poll_interval: int,
+) -> None:
+    """Background worker for provider device-code OAuth flows."""
+    session = _session_store.get(state)
+    if not session:
+        return
+    device_auth_id = str(session.data.get("device_auth_id") or "")
+    user_code = str(session.data.get("user_code") or "")
+    if not device_auth_id or not user_code:
+        _session_store.fail(state, "Missing device-code session data")
+        return
+
+    try:
+        poller = getattr(flow, "poll_device_authorization", None)
+        if not poller:
+            raise RuntimeError("OAuth flow does not support device polling")
+        code, code_verifier = await poller(
+            device_auth_id=device_auth_id,
+            user_code=user_code,
+            poll_interval=poll_interval,
+            expires_in=expires_in,
+        )
+        token_result = await flow.exchange(
+            code=code,
+            state=state,
+            code_verifier=code_verifier,
+            callback_url=session.callback_url,
+        )
+        await _save_oauth_credentials(
+            provider_id=provider_id,
+            flow=flow,
+            token_result=token_result,
+            manager=manager,
+            session_state=state,
+        )
+    except TimeoutError as exc:
+        _session_store.expire(state, str(exc))
+    except Exception as exc:
+        logger.exception("Device-code OAuth failed for %s", provider_id)
+        _session_store.fail(state, str(exc))
 
 
 @router.get(
@@ -172,26 +297,13 @@ async def oauth_callback(
             status_code=500,
         )
 
-    # Save credentials to provider config
-    credential = flow.get_credential_dict(token_result)
-    if credential:
-        if not manager.update_provider(provider_id, credential):
-            _session_store.fail(session_state, "Provider not found")
-            return HTMLResponse(
-                content=_error_html("Provider not found."),
-                status_code=404,
-            )
-        # Auto-discover models now that credentials are available
-        try:
-            await manager.fetch_provider_models(provider_id)
-        except Exception:
-            logger.warning(
-                f"Model discovery failed for {provider_id} "
-                f"after OAuth, will retry on next list",
-            )
-        _session_store.complete(session_state, credential)
-    else:
-        _session_store.fail(session_state, "No credentials returned")
+    if not await _save_oauth_credentials(
+        provider_id=provider_id,
+        flow=flow,
+        token_result=token_result,
+        manager=manager,
+        session_state=session_state,
+    ):
         return HTMLResponse(
             content=_error_html("No credentials received."),
             status_code=500,

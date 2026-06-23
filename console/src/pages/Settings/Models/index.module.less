@@ -10,6 +10,108 @@
   justify-content: space-between;
   width: 100%;
 }
+
+.fallbackList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.fallbackRow {
+  display: grid;
+  grid-template-columns: 28px 104px minmax(0, 1fr) 108px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.fallbackRowDragOver {
+  border-color: #6366f1;
+  background: #f8f9ff;
+}
+
+.fallbackDragHandle {
+  width: 28px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  cursor: grab;
+}
+
+.fallbackDragHandle:active {
+  cursor: grabbing;
+}
+
+.fallbackRank {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+.fallbackSelects {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.4fr);
+  gap: 8px;
+}
+
+.fallbackSelectLabel {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fallbackRowActions {
+  display: grid;
+  grid-template-columns: repeat(3, 32px);
+  gap: 4px;
+}
+
+.fallbackError {
+  margin-top: 8px;
+  color: #dc2626;
+  font-size: 12px;
+}
+
+.fallbackFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .fallbackRow {
+    grid-template-columns: 28px 1fr 96px;
+  }
+
+  .fallbackRank {
+    grid-column: 2 / 4;
+  }
+
+  .fallbackSelects {
+    grid-column: 1 / 4;
+    grid-template-columns: 1fr;
+  }
+
+  .fallbackRowActions {
+    grid-column: 1 / 4;
+    justify-content: end;
+  }
+
+  .fallbackFooter {
+    flex-direction: column;
+  }
+}
 /* ---- Page Layout ---- */
 .settingsPage {
   height: 100%;
@@ -747,6 +849,40 @@
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
+}
+
+.codexOAuthPanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.codexOAuthStatus {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.codexOAuthStatusDot,
+.codexOAuthStatusDotConnected {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #9ca3af;
+}
+
+.codexOAuthStatusDotConnected {
+  background: #10b981;
 }
 
 .jsonEditorContainer {

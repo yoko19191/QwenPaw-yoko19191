@@ -27,6 +27,26 @@ class OAuthStartResult(BaseModel):
         default="browser_redirect",
         description="OAuth flow type: browser_redirect or device_code",
     )
+    user_code: Optional[str] = Field(
+        default=None,
+        description="Device-code user code to show to the user",
+    )
+    verification_url: Optional[str] = Field(
+        default=None,
+        description="Device-code verification URL",
+    )
+    expires_in: Optional[int] = Field(
+        default=None,
+        description="Device-code expiration in seconds",
+    )
+    poll_interval: Optional[int] = Field(
+        default=None,
+        description="Suggested polling interval in seconds",
+    )
+    device_auth_id: Optional[str] = Field(
+        default=None,
+        description="Provider-private device authorization id",
+    )
 
 
 class OAuthTokenResult(BaseModel):

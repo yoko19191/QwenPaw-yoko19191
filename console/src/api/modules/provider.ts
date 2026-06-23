@@ -193,13 +193,23 @@ export const providerApi = {
   /* ---- Provider OAuth ---- */
 
   startOAuth: (providerId: string) =>
-    request<{ authorize_url: string; state: string; flow_type: string }>(
-      `/providers/${encodeURIComponent(providerId)}/oauth/start`,
-      { method: "POST" },
-    ),
+    request<{
+      authorize_url: string;
+      state: string;
+      flow_type: "browser_redirect" | "device_code";
+      user_code?: string;
+      verification_url?: string;
+      expires_in?: number;
+      poll_interval?: number;
+    }>(`/providers/${encodeURIComponent(providerId)}/oauth/start`, {
+      method: "POST",
+    }),
 
   getOAuthStatus: (providerId: string, state: string) =>
-    request<{ status: string; error?: string }>(
+    request<{
+      status: "pending" | "completed" | "failed" | "expired";
+      error?: string;
+    }>(
       `/providers/${encodeURIComponent(
         providerId,
       )}/oauth/status?state=${encodeURIComponent(state)}`,

@@ -94,6 +94,50 @@ async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
     assert models == []
 
 
+async def test_codex_oauth_fetch_models_uses_codex_endpoint(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.auth_mode = "codex_oauth"
+    provider.api_key = "access-token"
+    provider.oauth_refresh_token = "refresh-token"
+    provider.oauth_expires_at = 9999999999
+    expected = [openai_provider_module.ModelInfo(id="gpt-5.5", name="gpt-5.5")]
+
+    async def fake_fetch_codex_models(access_token, timeout=5):
+        assert access_token == "access-token"
+        assert timeout == 3
+        return expected
+
+    monkeypatch.setattr(
+        openai_provider_module,
+        "fetch_codex_models",
+        fake_fetch_codex_models,
+    )
+
+    models = await provider.fetch_models(timeout=3)
+
+    assert models == expected
+
+
+async def test_openai_oauth_connected_requires_codex_auth_mode() -> None:
+    provider = _make_provider()
+    provider.meta = {
+        "supports_oauth": True,
+        "oauth_auth_mode": "codex_oauth",
+    }
+    provider.auth_mode = "api_key"
+
+    api_info = await provider.get_info(mock_secret=False)
+
+    provider.auth_mode = "codex_oauth"
+    codex_info = await provider.get_info(mock_secret=False)
+
+    assert api_info.supports_oauth is True
+    assert api_info.oauth_connected is False
+    assert codex_info.oauth_connected is True
+
+
 async def test_check_model_connection_success(monkeypatch) -> None:
     provider = _make_provider()
     captured: list[dict] = []

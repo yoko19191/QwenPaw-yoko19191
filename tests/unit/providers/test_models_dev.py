@@ -3,6 +3,8 @@
 from qwenpaw.providers.models_dev import (
     MODELS_DEV_PROBE_SOURCE,
     apply_models_dev_metadata,
+    discover_models_dev_models,
+    merge_models_dev_discovery,
 )
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
 
@@ -110,3 +112,66 @@ def test_apply_models_dev_metadata_leaves_unmatched_models_unchanged():
     assert enriched[0].max_input_length == model.max_input_length
     assert enriched[0].max_tokens == model.max_tokens
     assert enriched[0].probe_source is None
+
+
+def test_discover_models_dev_models_builds_candidates_without_provider_api():
+    provider = ProviderInfo(id="kimi-cn", name="Kimi")
+    catalog = {
+        "moonshotai-cn": {
+            "models": {
+                "kimi-k2.5": {
+                    "id": "kimi-k2.5",
+                    "name": "Kimi K2.5",
+                    "limit": {"context": 262144, "output": 32768},
+                    "modalities": {
+                        "input": ["text", "image", "video"],
+                        "output": ["text"],
+                    },
+                },
+            },
+        },
+    }
+
+    models = discover_models_dev_models(provider, catalog)
+
+    assert [model.id for model in models] == ["kimi-k2.5"]
+    assert models[0].name == "Kimi K2.5"
+    assert models[0].max_input_length == 262144
+    assert models[0].supports_multimodal is True
+    assert models[0].probe_source == MODELS_DEV_PROBE_SOURCE
+
+
+def test_merge_models_dev_discovery_prefers_provider_api_rows():
+    provider = ProviderInfo(id="openai", name="OpenAI")
+    api_models = [ModelInfo(id="gpt-5", name="Account GPT-5")]
+    catalog = {
+        "openai": {
+            "models": {
+                "gpt-5": {
+                    "id": "gpt-5",
+                    "name": "Catalog GPT-5",
+                    "limit": {"context": 400000, "output": 128000},
+                    "modalities": {
+                        "input": ["text"],
+                        "output": ["text"],
+                    },
+                },
+                "gpt-5-mini": {
+                    "id": "gpt-5-mini",
+                    "name": "GPT-5 Mini",
+                    "limit": {"context": 400000, "output": 128000},
+                    "modalities": {
+                        "input": ["text"],
+                        "output": ["text"],
+                    },
+                },
+            },
+        },
+    }
+
+    models = merge_models_dev_discovery(provider, api_models, catalog)
+
+    assert [model.id for model in models] == ["gpt-5", "gpt-5-mini"]
+    assert models[0].name == "Account GPT-5"
+    assert models[0].max_input_length == 400000
+    assert models[1].name == "GPT-5 Mini"

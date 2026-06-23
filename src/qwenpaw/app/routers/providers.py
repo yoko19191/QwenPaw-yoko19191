@@ -74,11 +74,10 @@ class ProviderConfigRequest(BaseModel):
         default=None,
         description="Custom HTTP headers to include in every API request.",
     )
-    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
+    auth_mode: Optional[Literal["api_key", "auth_token", "codex_oauth"]] = Field(
         default=None,
         description=(
-            "Authentication mode: 'api_key' or 'auth_token'. "
-            "Only applies to Anthropic-compatible providers."
+            "Authentication mode: 'api_key', 'auth_token', or 'codex_oauth'."
         ),
     )
 
@@ -93,6 +92,13 @@ class ModelSlotRequest(BaseModel):
     agent_id: Optional[str] = Field(
         default=None,
         description="Target agent ID when scope is 'agent'",
+    )
+    fallback_llms: Optional[List[ModelSlotConfig]] = Field(
+        default=None,
+        description=(
+            "Global fallback models in priority order. Only used when "
+            "scope is 'global'."
+        ),
     )
 
 
@@ -177,6 +183,20 @@ def _validate_model_slot(
                 f"Model '{model_id}' not found in provider '{provider_id}'."
             ),
         )
+
+
+def _active_models_response(
+    manager: ProviderManager,
+    active_llm: ModelSlotConfig | None,
+    *,
+    include_fallbacks: bool = True,
+) -> ActiveModelsInfo:
+    return ActiveModelsInfo(
+        active_llm=active_llm,
+        fallback_llms=(
+            manager.get_active_model_fallbacks() if include_fallbacks else []
+        ),
+    )
 
 
 async def _load_agent_model(
@@ -285,7 +305,7 @@ class TestProviderRequest(BaseModel):
         default=None,
         description="Custom headers to use for this test request",
     )
-    auth_mode: Optional[Literal["api_key", "auth_token"]] = Field(
+    auth_mode: Optional[Literal["api_key", "auth_token", "codex_oauth"]] = Field(
         default=None,
         description="Authentication mode to use for this test request",
     )
@@ -350,7 +370,7 @@ async def test_provider(
             overrides["base_url"] = body.base_url
         if body and body.custom_headers is not None:
             overrides["custom_headers"] = body.custom_headers
-        if body and body.auth_mode in ("api_key", "auth_token"):
+        if body and body.auth_mode in ("api_key", "auth_token", "codex_oauth"):
             overrides["auth_mode"] = body.auth_mode
         tmp_provider = provider.model_copy(update=overrides)
         ok, msg = await tmp_provider.check_connection()
@@ -614,7 +634,7 @@ async def get_active_models(
     - agent: a specific agent's configured model only
     """
     if scope == "global":
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return _active_models_response(manager, manager.get_active_model())
 
     if scope == "agent":
         if not agent_id:
@@ -622,8 +642,10 @@ async def get_active_models(
                 status_code=400,
                 detail="agent_id is required when scope is 'agent'",
             )
-        return ActiveModelsInfo(
-            active_llm=await _load_agent_model(request, agent_id),
+        return _active_models_response(
+            manager,
+            await _load_agent_model(request, agent_id),
+            include_fallbacks=False,
         )
 
     try:
@@ -639,7 +661,7 @@ async def get_active_models(
                 target_agent_id,
                 agent_model,
             )
-            return ActiveModelsInfo(active_llm=agent_model)
+            return _active_models_response(manager, agent_model)
     except (
         HTTPException,
         OSError,
@@ -655,7 +677,7 @@ async def get_active_models(
 
     global_model = manager.get_active_model()
     logger.info("Returning global model: %s", global_model)
-    return ActiveModelsInfo(active_llm=global_model)
+    return _active_models_response(manager, global_model)
 
 
 @router.put(
@@ -671,7 +693,11 @@ async def set_active_model(
     """Set active model by scope."""
     if body.scope == "global":
         try:
-            await manager.activate_model(body.provider_id, body.model)
+            await manager.activate_model(
+                body.provider_id,
+                body.model,
+                fallback_models=body.fallback_llms,
+            )
         except (
             FileNotFoundError,
             RuntimeError,
@@ -701,7 +727,7 @@ async def set_active_model(
         except Exception:
             pass
 
-        return ActiveModelsInfo(active_llm=manager.get_active_model())
+        return _active_models_response(manager, manager.get_active_model())
 
     if not body.agent_id:
         raise HTTPException(
@@ -744,11 +770,13 @@ async def set_active_model(
 
     manager.maybe_probe_multimodal(body.provider_id, body.model)
 
-    return ActiveModelsInfo(
-        active_llm=ModelSlotConfig(
+    return _active_models_response(
+        manager,
+        ModelSlotConfig(
             provider_id=body.provider_id,
             model=body.model,
         ),
+        include_fallbacks=False,
     )
 
 

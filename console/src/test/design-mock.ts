@@ -12,6 +12,9 @@ const buttonLike = ({
   children,
   onClick,
   icon,
+  loading: _loading,
+  block: _block,
+  type: _type,
   ...props
 }: Record<string, unknown>) =>
   React.createElement(
@@ -19,6 +22,43 @@ const buttonLike = ({
     { onClick, ...props },
     icon as any,
     children as any,
+  );
+
+export const Select = ({
+  value,
+  onChange,
+  options = [],
+  placeholder,
+  disabled,
+  showSearch: _showSearch,
+  optionFilterProp: _optionFilterProp,
+  ...props
+}: Record<string, unknown>) =>
+  React.createElement(
+    "select",
+    {
+      value: (value as string | undefined) ?? "",
+      disabled: disabled as boolean | undefined,
+      onChange: (e: React.ChangeEvent<HTMLSelectElement>) =>
+        (onChange as ((v: string) => void) | undefined)?.(e.target.value),
+      ...props,
+    } as any,
+    [
+      React.createElement(
+        "option",
+        { key: "__placeholder", value: "" },
+        placeholder as any,
+      ),
+      ...(
+        (options as Array<{ value: string; label: React.ReactNode }>) ?? []
+      ).map((option) =>
+        React.createElement(
+          "option",
+          { key: option.value, value: option.value },
+          option.label,
+        ),
+      ),
+    ],
   );
 
 export const IconButton = buttonLike;
@@ -73,6 +113,7 @@ export default {
   IconButton,
   Dropdown,
   Button,
+  Select,
   Input,
   Switch,
   Modal,

@@ -43,6 +43,10 @@ from ..providers.retry_chat_model import (
     RetryConfig,
     RateLimitConfig,
 )
+from ..providers.fallback_chat_model import (
+    FallbackChatModel,
+    FallbackModelCandidate,
+)
 from ..token_usage import TokenRecordingModelWrapper
 
 
@@ -1008,6 +1012,33 @@ def _strip_top_level_message_name(
     return messages
 
 
+def _wrap_model_for_runtime(
+    provider_id: str,
+    model: ChatModelBase,
+    retry_config: RetryConfig | None,
+    rate_limit_config: RateLimitConfig | None,
+) -> ChatModelBase:
+    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
+    return RetryChatModel(
+        wrapped_model,
+        retry_config=retry_config,
+        rate_limit_config=rate_limit_config,
+    )
+
+
+def _create_model_for_slot(
+    manager: ProviderManager,
+    provider_id: str,
+    model_id: str,
+) -> ChatModelBase:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{provider_id}' not found.",
+        )
+    return provider.get_chat_model_instance(model_id)
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
 ) -> Tuple[ChatModelBase, FormatterBase]:
@@ -1060,22 +1091,13 @@ def create_model_and_formatter(
         except Exception:
             pass
 
-    # Create chat model from agent-specific or global config
+    # Resolve chat model from agent-specific or global config
+    manager = ProviderManager.get_instance()
     if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = model_slot.provider_id
+        primary_slot = model_slot
     else:
         # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
+        global_model = manager.get_active_model()
         if not global_model:
             raise ProviderError(
                 message=(
@@ -1084,17 +1106,73 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
-        provider_id = global_model.provider_id
+        primary_slot = global_model
+
+    model = _create_model_for_slot(
+        manager,
+        primary_slot.provider_id,
+        primary_slot.model,
+    )
+    primary_formatter_class = _get_formatter_for_chat_model(model.__class__)
 
     # Create the formatter based on the real model class
     formatter = _create_formatter_instance(model.__class__)
 
-    # Wrap with retry logic for transient LLM API errors
-    wrapped_model = TokenRecordingModelWrapper(provider_id, model)
-    wrapped_model = RetryChatModel(
-        wrapped_model,
-        retry_config=retry_config,
-        rate_limit_config=rate_limit_config,
+    candidates = [
+        FallbackModelCandidate(
+            provider_id=primary_slot.provider_id,
+            model_id=primary_slot.model,
+            model=_wrap_model_for_runtime(
+                primary_slot.provider_id,
+                model,
+                retry_config,
+                rate_limit_config,
+            ),
+        ),
+    ]
+    seen_slots = {(primary_slot.provider_id, primary_slot.model)}
+    for fallback_slot in manager.get_active_model_fallbacks():
+        fallback_key = (fallback_slot.provider_id, fallback_slot.model)
+        if fallback_key in seen_slots:
+            continue
+        seen_slots.add(fallback_key)
+        provider = manager.get_provider(fallback_slot.provider_id)
+        if provider is None or not provider.has_model(fallback_slot.model):
+            logger.warning(
+                "Skipping invalid LLM fallback slot: %s/%s",
+                fallback_slot.provider_id,
+                fallback_slot.model,
+            )
+            continue
+        fallback_model = provider.get_chat_model_instance(fallback_slot.model)
+        fallback_formatter_class = _get_formatter_for_chat_model(
+            fallback_model.__class__,
+        )
+        if fallback_formatter_class is not primary_formatter_class:
+            logger.warning(
+                "Skipping LLM fallback %s/%s because formatter family %s "
+                "differs from primary family %s",
+                fallback_slot.provider_id,
+                fallback_slot.model,
+                fallback_formatter_class.__name__,
+                primary_formatter_class.__name__,
+            )
+            continue
+        candidates.append(
+            FallbackModelCandidate(
+                provider_id=fallback_slot.provider_id,
+                model_id=fallback_slot.model,
+                model=_wrap_model_for_runtime(
+                    fallback_slot.provider_id,
+                    fallback_model,
+                    retry_config,
+                    rate_limit_config,
+                ),
+            ),
+        )
+
+    wrapped_model: ChatModelBase = (
+        FallbackChatModel(candidates) if len(candidates) > 1 else candidates[0].model
     )
 
     return wrapped_model, formatter

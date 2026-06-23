@@ -20,14 +20,22 @@ class OAuthSession:
     code_verifier: str
     callback_url: str
     created_at: float = field(default_factory=time.monotonic)
-    status: str = "pending"  # pending | completed | failed
+    expires_at: Optional[float] = None
+    status: str = "pending"  # pending | completed | failed | expired
     error: Optional[str] = None
+    data: dict = field(default_factory=dict)
     # Stored after successful exchange
     credential: Optional[dict] = None
 
     def is_expired(self) -> bool:
         """Return True if session exceeded TTL."""
+        if self.expires_at is not None:
+            return time.monotonic() > self.expires_at
         return (time.monotonic() - self.created_at) > _TTL_SECONDS
+
+    def can_purge(self) -> bool:
+        """Return True when an old terminal session can be discarded."""
+        return (time.monotonic() - self.created_at) > (_TTL_SECONDS * 2)
 
 
 class OAuthSessionStore:
@@ -38,8 +46,14 @@ class OAuthSessionStore:
         self._sessions: Dict[str, OAuthSession] = {}
 
     def _purge_expired(self) -> None:
-        """Remove expired sessions."""
-        expired = [k for k, v in self._sessions.items() if v.is_expired()]
+        """Mark expired sessions and remove old terminal sessions."""
+        expired = []
+        for key, session in self._sessions.items():
+            if session.is_expired() and session.status == "pending":
+                session.status = "expired"
+                session.error = "Session expired"
+            if session.status != "pending" and session.can_purge():
+                expired.append(key)
         for k in expired:
             del self._sessions[k]
 
@@ -49,14 +63,23 @@ class OAuthSessionStore:
         state: str,
         code_verifier: str,
         callback_url: str,
+        data: Optional[dict] = None,
+        expires_in: Optional[int] = None,
     ) -> OAuthSession:
         """Create and store a new OAuth session."""
         self._purge_expired()
+        expires_at = (
+            time.monotonic() + expires_in
+            if isinstance(expires_in, int) and expires_in > 0
+            else None
+        )
         session = OAuthSession(
             provider_id=provider_id,
             state=state,
             code_verifier=code_verifier,
             callback_url=callback_url,
+            expires_at=expires_at,
+            data=data or {},
         )
         self._sessions[state] = session
         return session
@@ -107,6 +130,13 @@ class OAuthSessionStore:
         session = self._sessions.get(state)
         if session:
             session.status = "failed"
+            session.error = error
+
+    def expire(self, state: str, error: str = "Session expired") -> None:
+        """Mark session as expired."""
+        session = self._sessions.get(state)
+        if session:
+            session.status = "expired"
             session.error = error
 
     def remove(self, state: str) -> None:

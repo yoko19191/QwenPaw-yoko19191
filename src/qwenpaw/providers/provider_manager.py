@@ -28,7 +28,7 @@ from .openai_provider import (
     KiloProvider,
 )
 from .lmstudio_provider import LMStudioProvider
-from .models_dev import enrich_models_with_models_dev_metadata
+from .models_dev import discover_models_with_models_dev_fallback
 from .provider import (
     ModelInfo,
     Provider,
@@ -45,749 +45,15 @@ from ..security.secret_store import (
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------
-# Built-in provider definitions and their default models.
+# Built-in provider definitions. Model lists are discovered dynamically.
 # -------------------------------------------------------
-
-MODELSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="Qwen/Qwen3.5-122B-A10B",
-        name="Qwen3.5-122B-A10B",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="ZhipuAI/GLM-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-DASHSCOPE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3-max",
-        name="Qwen3 Max",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-235b-a22b-thinking-2507",
-        name="Qwen3 235B A22B Thinking",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-MIMO_TOKENPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="mimo-v2.5-pro",
-        name="MiMo V2.5 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="mimo-v2.5",
-        name="MiMo V2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-ALIYUN_TOKENPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3.2",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-ALIYUN_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="qwen3.6-plus",
-        name="Qwen3.6 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3.5-plus",
-        name="Qwen3.5 Plus",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="GLM-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-4.7",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-max-2026-01-23",
-        name="Qwen3 Max 2026-01-23",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-next",
-        name="Qwen3 Coder Next",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="qwen3-coder-plus",
-        name="Qwen3 Coder Plus",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-ZHIPU_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="glm-4.7-flash",
-        name="GLM-4.7-Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="glm-5",
-        name="glm-5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="glm-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5-turbo",
-        name="glm-5-turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="glm-5v-turbo",
-        name="glm-5v-turbo",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5.2",
-        name="GPT-5.2",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5",
-        name="GPT-5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o3",
-        name="o3",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="o4-mini",
-        name="o4-mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-KILO_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kilo-auto/free",
-        name="Kilo Auto (Free Router)",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nvidia/nemotron-3-ultra-550b-a55b:free",
-        name="Nemotron 3 Ultra 550B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nvidia/nemotron-3-super-120b-a12b:free",
-        name="Nemotron 3 Super 120B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="poolside/laguna-m.1:free",
-        name="Poolside Laguna M.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="poolside/laguna-xs.2:free",
-        name="Poolside Laguna XS.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="stepfun/step-3.7-flash:free",
-        name="Step 3.7 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nex-agi/nex-n2-pro:free",
-        name="Nex N2 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
-OPENCODE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="deepseek-v4-flash-free",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="mimo-v2.5-free",
-        name="Mimo V2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nemotron-3-ultra-free",
-        name="Nemotron 3 Ultra",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="nemotron-3-super-free",
-        name="Nemotron 3 Super",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
-AZURE_OPENAI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-5-chat",
-        name="GPT-5 Chat",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-mini",
-        name="GPT-5 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-5-nano",
-        name="GPT-5 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1",
-        name="GPT-4.1",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-mini",
-        name="GPT-4.1 Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4.1-nano",
-        name="GPT-4.1 Nano",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
-
-MINIMAX_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="MiniMax-M2.5",
-        name="MiniMax M2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.5-highspeed",
-        name="MiniMax M2.5 Highspeed",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7",
-        name="MiniMax M2.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="MiniMax-M2.7-highspeed",
-        name="MiniMax M2.7 Highspeed",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-KIMI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi K2.5",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0905-preview",
-        name="Kimi K2 0905 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-0711-preview",
-        name="Kimi K2 0711 Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-turbo-preview",
-        name="Kimi K2 Turbo Preview",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking",
-        name="Kimi K2 Thinking",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="kimi-k2-thinking-turbo",
-        name="Kimi K2 Thinking Turbo",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-DEEPSEEK_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="deepseek-chat",
-        name="DeepSeek Chat",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-reasoner",
-        name="DeepSeek Reasoner",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-flash",
-        name="DeepSeek V4 Flash",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v4-pro",
-        name="DeepSeek V4 Pro",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-VOLCENGINE_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="doubao-seed-2-0-code-preview-260215",
-        name="Doubao-Seed-2.0-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-pro-260215",
-        name="Doubao-Seed-2.0-pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-lite-260428",
-        name="Doubao-Seed-2.0-lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-code-preview-251028",
-        name="Doubao-Seed-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-4-7-251222",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="deepseek-v3-2-251201",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="doubao-seed-1-8-251228",
-        name="Doubao-Seed-1.8",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-mini-260428",
-        name="Doubao-Seed-2.0-mini",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-character-251128",
-        name="Doubao-Seed-Character",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
-VOLCENGINE_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="doubao-seed-2-0-code-preview-260215",
-        name="Doubao-Seed-2.0-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-pro-260215",
-        name="Doubao-Seed-2.0-pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-2-0-lite-260428",
-        name="Doubao-Seed-2.0-lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="doubao-seed-code-preview-251028",
-        name="Doubao-Seed-Code",
-        supports_image=True,
-        supports_video=True,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-5.1",
-        name="GLM-5.1",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="minimax-m2.7",
-        name="MiniMax-M2.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="kimi-k2.6",
-        name="Kimi-K2.6",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="kimi-k2.5",
-        name="Kimi-K2.5",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="glm-4-7-251222",
-        name="GLM-4.7",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-    ModelInfo(
-        id="deepseek-v3-2-251201",
-        name="DeepSeek-V3.2",
-        supports_image=False,
-        supports_video=False,
-        probe_source="probed",
-    ),
-]
-
-ANTHROPIC_MODELS: List[ModelInfo] = []
-
-GEMINI_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gemini-3.1-pro-preview",
-        name="Gemini 3.1 Pro Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3-flash-preview",
-        name="Gemini 3 Flash Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-3.1-flash-lite-preview",
-        name="Gemini 3.1 Flash Lite Preview",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-pro",
-        name="Gemini 2.5 Pro",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash",
-        name="Gemini 2.5 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.5-flash-lite",
-        name="Gemini 2.5 Flash Lite",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-    ModelInfo(
-        id="gemini-2.0-flash",
-        name="Gemini 2.0 Flash",
-        supports_image=True,
-        supports_video=True,
-        probe_source="documentation",
-    ),
-]
 
 PROVIDER_MODELSCOPE = OpenAIProvider(
     id="modelscope",
     name="ModelScope",
     base_url="https://api-inference.modelscope.cn/v1",
     api_key_prefix="ms",
-    models=MODELSCOPE_MODELS,
+    models=[],
     freeze_url=True,
 )
 
@@ -796,7 +62,7 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
     name="DashScope",
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     api_key_prefix="sk",
-    models=DASHSCOPE_MODELS,
+    models=[],
     provider_group="aliyun",
     provider_group_name="Aliyun",
     provider_variant="dashscope",
@@ -804,18 +70,15 @@ PROVIDER_DASHSCOPE = OpenAIProvider(
         "base_url_options": [
             {
                 "label": "China (Beijing)",
-                "value": "https://dashscope.aliyuncs.com/"
-                "compatible-mode/v1",
+                "value": "https://dashscope.aliyuncs.com/" "compatible-mode/v1",
             },
             {
                 "label": "International (Singapore)",
-                "value": "https://dashscope-intl.aliyuncs.com/"
-                "compatible-mode/v1",
+                "value": "https://dashscope-intl.aliyuncs.com/" "compatible-mode/v1",
             },
             {
                 "label": "US (Virginia)",
-                "value": "https://dashscope-us.aliyuncs.com/"
-                "compatible-mode/v1",
+                "value": "https://dashscope-us.aliyuncs.com/" "compatible-mode/v1",
             },
         ],
     },
@@ -826,7 +89,7 @@ PROVIDER_ALIYUN_CODINGPLAN = OpenAIProvider(
     name="Aliyun Coding Plan (China)",
     base_url="https://coding.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
-    models=ALIYUN_CODINGPLAN_MODELS,
+    models=[],
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -839,7 +102,7 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
     name="Aliyun Coding Plan (International)",
     base_url="https://coding-intl.dashscope.aliyuncs.com/v1",
     api_key_prefix="sk-sp",
-    models=ALIYUN_CODINGPLAN_MODELS,
+    models=[],
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -850,11 +113,9 @@ PROVIDER_ALIYUN_CODINGPLAN_INTL = OpenAIProvider(
 PROVIDER_ALIYUN_TOKENPLAN = OpenAIProvider(
     id="aliyun-tokenplan",
     name="Aliyun Token Plan",
-    base_url=(
-        "https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"
-    ),
+    base_url=("https://token-plan.cn-beijing.maas.aliyuncs.com/" "compatible-mode/v1"),
     api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
+    models=[],
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -866,11 +127,10 @@ PROVIDER_ALIYUN_TOKENPLAN_INTL = OpenAIProvider(
     id="aliyun-tokenplan-intl",
     name="Aliyun Token Plan (International)",
     base_url=(
-        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/"
-        "compatible-mode/v1"
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/" "compatible-mode/v1"
     ),
     api_key_prefix="sk-sp",
-    models=ALIYUN_TOKENPLAN_MODELS,
+    models=[],
     support_connection_check=False,
     freeze_url=True,
     provider_group="aliyun",
@@ -883,7 +143,7 @@ PROVIDER_ZHIPU_CN = OpenAIProvider(
     name="Zhipu (BigModel)",
     base_url="https://open.bigmodel.cn/api/paas/v4",
     api_key_prefix="",
-    models=ZHIPU_MODELS,
+    models=[],
     freeze_url=True,
     provider_group="zhipu",
     provider_group_name="Zhipu",
@@ -896,7 +156,7 @@ PROVIDER_ZHIPU_CN_CODINGPLAN = OpenAIProvider(
     name="Zhipu Coding Plan (BigModel)",
     base_url="https://open.bigmodel.cn/api/coding/paas/v4",
     api_key_prefix="",
-    models=ZHIPU_MODELS,
+    models=[],
     freeze_url=True,
     support_connection_check=False,
     provider_group="zhipu",
@@ -909,7 +169,7 @@ PROVIDER_ZHIPU_INTL = OpenAIProvider(
     name="Zhipu (Z.AI)",
     base_url="https://api.z.ai/api/paas/v4",
     api_key_prefix="",
-    models=ZHIPU_MODELS,
+    models=[],
     freeze_url=True,
     provider_group="zhipu",
     provider_group_name="Zhipu",
@@ -921,7 +181,7 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     name="Zhipu Coding Plan (Z.AI)",
     base_url="https://api.z.ai/api/coding/paas/v4",
     api_key_prefix="",
-    models=ZHIPU_MODELS,
+    models=[],
     freeze_url=True,
     support_connection_check=False,
     provider_group="zhipu",
@@ -941,8 +201,13 @@ PROVIDER_OPENAI = OpenAIProvider(
     name="OpenAI",
     base_url="https://api.openai.com/v1",
     api_key_prefix="sk-",
-    models=OPENAI_MODELS,
+    models=[],
     freeze_url=True,
+    meta={
+        "supports_oauth": True,
+        "oauth_auth_mode": "codex_oauth",
+        "oauth_flows": ["codex_device_code"],
+    },
 )
 
 PROVIDER_OPENCODE = OpenCodeProvider(
@@ -950,7 +215,7 @@ PROVIDER_OPENCODE = OpenCodeProvider(
     name="OpenCode",
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
-    models=OPENCODE_MODELS,
+    models=[],
     require_api_key=False,
     meta={
         "base_url_options": [
@@ -967,7 +232,7 @@ PROVIDER_KILO = KiloProvider(
     name="Kilo Code",
     base_url="https://api.kilo.ai/api/gateway",
     api_key_prefix="",
-    models=KILO_MODELS,
+    models=[],
     require_api_key=False,
     meta={"is_free_tier": True},
     freeze_url=True,
@@ -977,14 +242,14 @@ PROVIDER_AZURE_OPENAI = OpenAIProvider(
     id="azure-openai",
     name="Azure OpenAI",
     api_key_prefix="",
-    models=AZURE_OPENAI_MODELS,
+    models=[],
 )
 
 PROVIDER_MINIMAX = AnthropicProvider(
     id="minimax",
     name="MiniMax (International)",
     base_url="https://api.minimax.io/anthropic",
-    models=MINIMAX_MODELS,
+    models=[],
     chat_model="AnthropicChatModel",
     freeze_url=True,
     support_connection_check=False,
@@ -997,7 +262,7 @@ PROVIDER_MINIMAX_CN = AnthropicProvider(
     id="minimax-cn",
     name="MiniMax (China)",
     base_url="https://api.minimaxi.com/anthropic",
-    models=MINIMAX_MODELS,
+    models=[],
     chat_model="AnthropicChatModel",
     freeze_url=True,
     support_connection_check=False,
@@ -1011,7 +276,7 @@ PROVIDER_KIMI_CN = OpenAIProvider(
     name="Kimi (China)",
     base_url="https://api.moonshot.cn/v1",
     api_key_prefix="",
-    models=KIMI_MODELS,
+    models=[],
     freeze_url=True,
     provider_group="kimi",
     provider_group_name="Kimi",
@@ -1023,29 +288,19 @@ PROVIDER_KIMI_INTL = OpenAIProvider(
     name="Kimi (International)",
     base_url="https://api.moonshot.ai/v1",
     api_key_prefix="",
-    models=KIMI_MODELS,
+    models=[],
     freeze_url=True,
     provider_group="kimi",
     provider_group_name="Kimi",
     provider_variant="open_platform_intl",
 )
 
-KIMI_CODINGPLAN_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="kimi-for-coding",
-        name="Kimi for Coding",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-    ),
-]
-
 PROVIDER_KIMI_CODINGPLAN = OpenAIProvider(
     id="kimi-codingplan",
     name="Kimi Coding Plan",
     base_url="https://api.kimi.com/coding/v1",
     api_key_prefix="sk-kimi-",
-    models=KIMI_CODINGPLAN_MODELS,
+    models=[],
     freeze_url=True,
     support_connection_check=False,
     provider_group="kimi",
@@ -1058,7 +313,7 @@ PROVIDER_DEEPSEEK = OpenAIProvider(
     name="DeepSeek",
     base_url="https://api.deepseek.com",
     api_key_prefix="sk-",
-    models=DEEPSEEK_MODELS,
+    models=[],
     freeze_url=True,
 )
 
@@ -1067,7 +322,7 @@ PROVIDER_ANTHROPIC = AnthropicProvider(
     name="Anthropic",
     base_url="https://api.anthropic.com",
     api_key_prefix="sk-ant-",
-    models=ANTHROPIC_MODELS,
+    models=[],
     chat_model="AnthropicChatModel",
     freeze_url=False,
 )
@@ -1077,7 +332,7 @@ PROVIDER_GEMINI = GeminiProvider(
     name="Google Gemini",
     base_url="https://generativelanguage.googleapis.com",
     api_key_prefix="",
-    models=GEMINI_MODELS,
+    models=[],
     chat_model="GeminiChatModel",
     freeze_url=True,
     meta={
@@ -1107,47 +362,12 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     },
 )
 
-GITHUB_MODELS_MODELS: List[ModelInfo] = [
-    ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        supports_image=True,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="Meta-Llama-3.1-405B-Instruct",
-        name="Llama 3.1 405B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-    ModelInfo(
-        id="Meta-Llama-3.1-8B-Instruct",
-        name="Llama 3.1 8B",
-        supports_image=False,
-        supports_video=False,
-        probe_source="documentation",
-        is_free=True,
-    ),
-]
-
 PROVIDER_GITHUB_MODELS = OpenAIProvider(
     id="github-models",
     name="GitHub Models",
     base_url="https://models.inference.ai.azure.com",
     api_key_prefix="ghp_",
-    models=GITHUB_MODELS_MODELS,
+    models=[],
     freeze_url=True,
     meta={
         "is_free_tier": True,
@@ -1203,9 +423,9 @@ PROVIDER_VOLCENGINE_CN = OpenAIProvider(
     name="Volcano Engine",
     base_url="https://ark.cn-beijing.volces.com/api/v3",
     api_key_prefix="",
-    models=VOLCENGINE_MODELS,
+    models=[],
     freeze_url=True,
-    support_model_discovery=False,
+    support_model_discovery=True,
     provider_group="volcengine",
     provider_group_name="Volcano Engine",
     provider_variant="open_platform",
@@ -1216,10 +436,10 @@ PROVIDER_VOLCENGINE_CN_CODINGPLAN = OpenAIProvider(
     name="Volcano Engine Coding Plan",
     base_url="https://ark.cn-beijing.volces.com/api/coding/v3",
     api_key_prefix="",
-    models=VOLCENGINE_CODINGPLAN_MODELS,
+    models=[],
     support_connection_check=False,
     freeze_url=True,
-    support_model_discovery=False,
+    support_model_discovery=True,
     provider_group="volcengine",
     provider_group_name="Volcano Engine",
     provider_variant="coding_plan",
@@ -1230,7 +450,7 @@ PROVIDER_MIMO_TOKENPLAN = OpenAIProvider(
     name="Xiaomi MiMo Token Plan",
     base_url="https://token-plan-cn.xiaomimimo.com/v1",
     api_key_prefix="",
-    models=MIMO_TOKENPLAN_MODELS,
+    models=[],
     freeze_url=True,
 )
 
@@ -1248,6 +468,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self.custom_providers: Dict[str, Provider] = {}
         self.plugin_providers: Dict[str, Dict] = {}  # Plugin providers
         self.active_model: ModelSlotConfig | None = None
+        self.active_model_fallbacks: List[ModelSlotConfig] = []
         self.root_path = SECRET_DIR / "providers"
         self.builtin_path = self.root_path / "builtin"
         self.custom_path = self.root_path / "custom"
@@ -1310,15 +531,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         self._add_builtin(PROVIDER_MIMO_TOKENPLAN)
 
     def _add_builtin(self, provider: Provider):
+        provider = provider.model_copy(deep=True)
+        if not provider.is_local:
+            provider.support_model_discovery = True
         self.builtin_providers[provider.id] = provider
 
     async def list_provider_info(self) -> List[ProviderInfo]:
-        tasks = [
-            provider.get_info() for provider in self.builtin_providers.values()
-        ]
-        tasks += [
-            provider.get_info() for provider in self.custom_providers.values()
-        ]
+        tasks = [provider.get_info() for provider in self.builtin_providers.values()]
+        tasks += [provider.get_info() for provider in self.custom_providers.values()]
         # Add plugin providers - directly return their ProviderInfo
         for plugin_provider in self.plugin_providers.values():
             provider_info = plugin_provider["info"]
@@ -1371,6 +591,13 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
     def get_active_model(self) -> ModelSlotConfig | None:
         # Return the currently active provider/model configuration.
         return self.active_model
+
+    def get_active_model_fallbacks(self) -> List[ModelSlotConfig]:
+        """Return configured global fallback models in priority order."""
+        return [
+            ModelSlotConfig(provider_id=slot.provider_id, model=slot.model)
+            for slot in self.active_model_fallbacks
+        ]
 
     def update_provider(self, provider_id: str, config: Dict) -> bool:
         # Update the configuration of a provider (e.g., base URL, API key).
@@ -1442,33 +669,37 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider = self.get_provider(provider_id)
         if not provider:
             return []
+        provider_api_models: List[ModelInfo] = []
         try:
-            models = await provider.fetch_models()
-            models = await enrich_models_with_models_dev_metadata(
-                provider,
-                models,
-            )
-            if save:
-                provider.extra_models = models
-                # Save provider config to appropriate location
-                is_plugin = provider_id in self.plugin_providers
-                if is_plugin:
-                    provider_info = ProviderInfo(**provider.model_dump())
-                    self.plugin_providers[provider_id]["info"] = provider_info
-                    self._save_plugin_provider(provider)
-                else:
-                    self._save_provider(
-                        provider,
-                        is_builtin=provider_id in self.builtin_providers,
-                    )
-            return models
+            provider_api_models = await provider.fetch_models()
         except Exception as e:
             logger.warning(
-                "Failed to fetch models for provider '%s': %s",
+                "Failed to fetch models from provider API '%s': %s",
                 provider_id,
                 e,
             )
-            return []
+
+        if getattr(provider, "auth_mode", "") == "codex_oauth":
+            models = provider_api_models
+        else:
+            models = await discover_models_with_models_dev_fallback(
+                provider,
+                provider_api_models,
+            )
+        if save:
+            provider.extra_models = models
+            # Save provider config to appropriate location
+            is_plugin = provider_id in self.plugin_providers
+            if is_plugin:
+                provider_info = ProviderInfo(**provider.model_dump())
+                self.plugin_providers[provider_id]["info"] = provider_info
+                self._save_plugin_provider(provider)
+            else:
+                self._save_provider(
+                    provider,
+                    is_builtin=provider_id in self.builtin_providers,
+                )
+        return models
 
     def _resolve_custom_provider_id(self, provider_id: str) -> str:
         """Resolve provider ID conflicts for a custom provider."""
@@ -1512,10 +743,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             provider_path = self.custom_path / f"{provider_id}.json"
             if provider_path.exists():
                 os.remove(provider_path)
+            self._prune_active_model_fallbacks(provider_id=provider_id)
             return True
         return False
 
-    async def activate_model(self, provider_id: str, model_id: str):
+    async def activate_model(
+        self,
+        provider_id: str,
+        model_id: str,
+        fallback_models: List[ModelSlotConfig] | None = None,
+    ):
         # Set the active provider and model for the agent. This will update
         # providers.json and determine which provider/model is used when the
         # agent creates chat model instances.
@@ -1531,13 +768,118 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 model_name=f"{provider_id}/{model_id}",
                 details={"provider_id": provider_id, "model_id": model_id},
             )
-        self.active_model = ModelSlotConfig(
+        next_active_model = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
         )
+        if fallback_models is not None:
+            next_fallbacks = self._dedupe_model_slots(
+                fallback_models,
+                primary=next_active_model,
+                strict=True,
+            )
+            fallbacks_changed = True
+        else:
+            next_fallbacks = self._dedupe_model_slots(
+                self.active_model_fallbacks,
+                primary=next_active_model,
+                strict=False,
+            )
+            fallbacks_changed = next_fallbacks != self.active_model_fallbacks
+
+        self.active_model = next_active_model
+        self.active_model_fallbacks = next_fallbacks
         self.save_active_model(self.active_model)
+        if fallbacks_changed:
+            self.save_active_model_fallbacks(self.active_model_fallbacks)
 
         self.maybe_probe_multimodal(provider_id, model_id)
+
+    def _validate_model_slot(self, slot: ModelSlotConfig) -> ModelSlotConfig:
+        """Normalize and validate a provider/model slot."""
+        provider_id = self._normalize_provider_id(slot.provider_id)
+        model_id = (slot.model or "").strip()
+        provider = self.get_provider(provider_id)
+        if not provider:
+            raise ProviderError(
+                message=f"Provider '{provider_id}' not found.",
+            )
+        if not provider.has_model(model_id):
+            raise ModelNotFoundException(
+                model_name=f"{provider_id}/{model_id}",
+                details={"provider_id": provider_id, "model_id": model_id},
+            )
+        return ModelSlotConfig(provider_id=provider_id, model=model_id)
+
+    def _dedupe_model_slots(
+        self,
+        slots: List[ModelSlotConfig],
+        primary: ModelSlotConfig | None = None,
+        *,
+        strict: bool,
+    ) -> List[ModelSlotConfig]:
+        """Validate, de-duplicate, and remove the primary slot."""
+        seen: set[tuple[str, str]] = set()
+        if primary and primary.provider_id and primary.model:
+            seen.add(
+                (
+                    self._normalize_provider_id(primary.provider_id),
+                    primary.model.strip(),
+                ),
+            )
+
+        result: List[ModelSlotConfig] = []
+        for raw_slot in slots:
+            try:
+                slot = self._validate_model_slot(raw_slot)
+            except Exception:
+                if strict:
+                    raise
+                logger.warning(
+                    "Dropping invalid active model fallback: %s",
+                    raw_slot,
+                    exc_info=True,
+                )
+                continue
+            key = (slot.provider_id, slot.model)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(slot)
+        return result
+
+    def set_active_model_fallbacks(
+        self,
+        fallback_models: List[ModelSlotConfig],
+        primary: ModelSlotConfig | None = None,
+    ) -> None:
+        """Persist global active-model fallback slots in priority order."""
+        primary = primary if primary is not None else self.active_model
+        self.active_model_fallbacks = self._dedupe_model_slots(
+            fallback_models,
+            primary=primary,
+            strict=True,
+        )
+        self.save_active_model_fallbacks(self.active_model_fallbacks)
+
+    def _prune_active_model_fallbacks(
+        self,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+    ) -> None:
+        """Remove fallback entries that reference a deleted provider/model."""
+        provider_id = self._normalize_provider_id(provider_id) if provider_id else None
+        before = len(self.active_model_fallbacks)
+        self.active_model_fallbacks = [
+            slot
+            for slot in self.active_model_fallbacks
+            if not (
+                (provider_id is None or slot.provider_id == provider_id)
+                and (model_id is None or slot.model == model_id)
+            )
+        ]
+        if len(self.active_model_fallbacks) != before:
+            self.save_active_model_fallbacks(self.active_model_fallbacks)
 
     def maybe_probe_multimodal(self, provider_id: str, model_id: str) -> None:
         """Schedule multimodal probing for a model if capability is unknown."""
@@ -1646,6 +988,11 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 message=f"Provider '{provider_id}' not found.",
             )
         await provider.delete_model(model_id=model_id)
+        if not provider.has_model(model_id):
+            self._prune_active_model_fallbacks(
+                provider_id=provider_id,
+                model_id=model_id,
+            )
 
         # Save provider config to appropriate location
         is_plugin = provider_id in self.plugin_providers
@@ -1910,6 +1257,24 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except OSError:
             pass
 
+    def save_active_model_fallbacks(
+        self,
+        fallback_models: List[ModelSlotConfig],
+    ) -> None:
+        """Save global active provider/model fallbacks to disk."""
+        fallbacks_path = self.root_path / "active_model_fallbacks.json"
+        with open(fallbacks_path, "w", encoding="utf-8") as f:
+            json.dump(
+                [slot.model_dump() for slot in fallback_models],
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        try:
+            os.chmod(fallbacks_path, 0o600)
+        except OSError:
+            pass
+
     def clear_active_model(self, provider_id: str | None = None) -> bool:
         """Clear the active provider/model configuration.
 
@@ -1921,10 +1286,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Normalize provider ID for backward compatibility
         if provider_id is not None:
             provider_id = self._normalize_provider_id(provider_id)
-        if (
-            provider_id is not None
-            and self.active_model.provider_id != provider_id
-        ):
+        if provider_id is not None and self.active_model.provider_id != provider_id:
             return False
 
         self.active_model = None
@@ -1947,19 +1309,37 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception:
             return None
 
+    def load_active_model_fallbacks(self) -> List[ModelSlotConfig]:
+        """Load global active provider/model fallbacks from disk."""
+        fallbacks_path = self.root_path / "active_model_fallbacks.json"
+        if not fallbacks_path.exists():
+            return []
+        try:
+            with open(fallbacks_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, list):
+                return []
+            return [ModelSlotConfig.model_validate(item) for item in data]
+        except Exception:
+            return []
+
     def _migrate_copaw_config(self) -> None:
         """Migrate copaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
-        if (
-            self.active_model
-            and self.active_model.provider_id == "copaw-local"
-        ):
+        if self.active_model and self.active_model.provider_id == "copaw-local":
             self.active_model.provider_id = "qwenpaw-local"
             self.save_active_model(self.active_model)
             logger.info(
                 "Migrated active model provider from "
                 "'copaw-local' to 'qwenpaw-local'",
             )
+        migrated_fallbacks = False
+        for slot in self.active_model_fallbacks:
+            if slot.provider_id == "copaw-local":
+                slot.provider_id = "qwenpaw-local"
+                migrated_fallbacks = True
+        if migrated_fallbacks:
+            self.save_active_model_fallbacks(self.active_model_fallbacks)
 
         # 2. Migrate stored provider config file
         copaw_config_path = self.builtin_path / "copaw-local.json"
@@ -2041,8 +1421,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "models" in data:
                     # migrate models to extra_models field
                     custom_provider.extra_models = [
-                        ModelInfo.model_validate(model)
-                        for model in data["models"]
+                        ModelInfo.model_validate(model) for model in data["models"]
                     ]
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
@@ -2082,13 +1461,15 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 builtin.api_key = provider.api_key
                 if provider.auth_mode != "api_key":
                     builtin.auth_mode = provider.auth_mode
+                if provider.oauth_refresh_token:
+                    builtin.oauth_refresh_token = provider.oauth_refresh_token
+                if provider.oauth_expires_at is not None:
+                    builtin.oauth_expires_at = provider.oauth_expires_at
                 if provider.custom_headers:
                     builtin.custom_headers = provider.custom_headers
                 builtin_model_ids = {m.id for m in builtin.models}
                 builtin.extra_models = [
-                    m
-                    for m in provider.extra_models
-                    if m.id not in builtin_model_ids
+                    m for m in provider.extra_models if m.id not in builtin_model_ids
                 ]
                 builtin.generate_kwargs.update(provider.generate_kwargs)
                 # Restore per-model config for built-in models.
@@ -2121,9 +1502,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                             if cfg["max_tokens"] is not None:
                                 model.max_tokens = cfg["max_tokens"]
                             if cfg["max_input_length"] is not None:
-                                model.max_input_length = cfg[
-                                    "max_input_length"
-                                ]
+                                model.max_input_length = cfg["max_input_length"]
         # Load custom providers
         for provider_file in self.custom_path.glob("*.json"):
             provider = self.load_provider(provider_file.stem, is_builtin=False)
@@ -2134,6 +1513,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         active_model = self.load_active_model()
         if active_model:
             self.active_model = active_model
+
+        fallback_models = self.load_active_model_fallbacks()
+        if fallback_models:
+            self.active_model_fallbacks = self._dedupe_model_slots(
+                fallback_models,
+                primary=self.active_model,
+                strict=False,
+            )
+            if self.active_model_fallbacks != fallback_models:
+                self.save_active_model_fallbacks(self.active_model_fallbacks)
 
         # Migrate copaw-local to qwenpaw-local for backwards compatibility
         self._migrate_copaw_config()
@@ -2156,10 +1545,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                     continue
 
                 # Static annotations present → compute derived flag only
-                if (
-                    model.supports_image is not None
-                    or model.supports_video is not None
-                ):
+                if model.supports_image is not None or model.supports_video is not None:
                     model.supports_multimodal = bool(
                         model.supports_image or model.supports_video,
                     )
@@ -2195,16 +1581,14 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because"
-                " llama.cpp is not installed.",
+                "Skipping local model restore because" " llama.cpp is not installed.",
             )
             _clear_local_provider()
             return
 
         if not local_manager.is_model_downloaded(model_id):
             logger.warning(
-                "Skipping local model restore because"
-                " model is not downloaded: %s",
+                "Skipping local model restore because" " model is not downloaded: %s",
                 model_id,
             )
             _clear_local_provider()
@@ -2289,16 +1673,16 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "base_url" in saved_config:
                     provider_info.base_url = saved_config["base_url"]
                 if "generate_kwargs" in saved_config:
-                    provider_info.generate_kwargs = saved_config[
-                        "generate_kwargs"
-                    ]
+                    provider_info.generate_kwargs = saved_config["generate_kwargs"]
                 # Load extra_models from saved config
                 if "extra_models" in saved_config:
                     provider_info.extra_models = [
                         ModelInfo.model_validate(
-                            model.model_dump()
-                            if isinstance(model, BaseModel)
-                            else model,
+                            (
+                                model.model_dump()
+                                if isinstance(model, BaseModel)
+                                else model
+                            ),
                         )
                         for model in saved_config["extra_models"]
                     ]
@@ -2345,6 +1729,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             )
             return False
         del self.plugin_providers[provider_id]
+        self._prune_active_model_fallbacks(provider_id=provider_id)
         logger.info(
             f"Unregistered plugin provider '{provider_id}' from memory",
         )

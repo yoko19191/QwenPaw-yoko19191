@@ -1,10 +1,21 @@
 # -*- coding: utf-8 -*-
 """Integration tests for LLM provider/model APIs."""
+
 from __future__ import annotations
 
 import pytest
 
 _PROVIDERS_HTTP_TIMEOUT = 15.0
+
+
+def _add_provider_model(app_server, provider_id: str, model_id: str) -> None:
+    resp = app_server.api_request(
+        "POST",
+        f"/api/models/{provider_id}/models",
+        json={"id": model_id, "name": model_id},
+        timeout=_PROVIDERS_HTTP_TIMEOUT,
+    )
+    assert resp.status_code in (200, 201), app_server.logs_tail()
 
 
 @pytest.mark.integration
@@ -64,6 +75,53 @@ def test_active_model_get_global_scope_contract(app_server) -> None:
     payload = resp.json()
     assert isinstance(payload, dict)
     assert "active_llm" in payload
+    assert "fallback_llms" in payload
+    assert isinstance(payload["fallback_llms"], list)
+
+
+@pytest.mark.integration
+@pytest.mark.p2
+def test_set_active_model_accepts_global_fallback_order(app_server) -> None:
+    """Test purpose:
+    - Verify PUT /api/models/active accepts and returns ordered global
+      fallback LLM slots while preserving the legacy active_llm field.
+
+    Test flow:
+    1. PUT /api/models/active with a primary model and two fallback slots.
+    2. Assert 200 and that the response includes active_llm plus the
+       fallback_llms list in the requested order.
+
+    API endpoints:
+    - PUT /api/models/active
+    """
+    _add_provider_model(app_server, "openai", "gpt-5")
+    _add_provider_model(app_server, "openai", "gpt-5-mini")
+    _add_provider_model(app_server, "dashscope", "qwen3-max")
+
+    resp = app_server.api_request(
+        "PUT",
+        "/api/models/active",
+        json={
+            "provider_id": "openai",
+            "model": "gpt-5",
+            "scope": "global",
+            "fallback_llms": [
+                {"provider_id": "openai", "model": "gpt-5-mini"},
+                {"provider_id": "dashscope", "model": "qwen3-max"},
+            ],
+        },
+        timeout=_PROVIDERS_HTTP_TIMEOUT,
+    )
+    assert resp.status_code == 200, app_server.logs_tail()
+    payload = resp.json()
+    assert payload["active_llm"] == {
+        "provider_id": "openai",
+        "model": "gpt-5",
+    }
+    assert payload["fallback_llms"] == [
+        {"provider_id": "openai", "model": "gpt-5-mini"},
+        {"provider_id": "dashscope", "model": "qwen3-max"},
+    ]
 
 
 @pytest.mark.integration
@@ -92,9 +150,7 @@ def test_set_active_model_rejects_unknown_provider_404(app_server) -> None:
     )
     assert resp.status_code == 404, app_server.logs_tail()
     detail = resp.json().get("detail", "")
-    assert (
-        "integ_unknown_provider_xyz" in detail or "not found" in detail.lower()
-    )
+    assert "integ_unknown_provider_xyz" in detail or "not found" in detail.lower()
 
 
 @pytest.mark.integration
@@ -124,3 +180,5 @@ def test_active_model_get_effective_scope_contract(app_server) -> None:
     payload = resp.json()
     assert isinstance(payload, dict)
     assert "active_llm" in payload
+    assert "fallback_llms" in payload
+    assert isinstance(payload["fallback_llms"], list)

@@ -9,9 +9,8 @@ import pytest
 
 import qwenpaw.providers.provider_manager as provider_manager_module
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import (
-    KIMI_MODELS,
-    KIMI_CODINGPLAN_MODELS,
     PROVIDER_KIMI_CN,
     PROVIDER_KIMI_INTL,
     PROVIDER_KIMI_CODINGPLAN,
@@ -38,16 +37,10 @@ def test_kimi_provider_configs() -> None:
     assert PROVIDER_KIMI_INTL.freeze_url is True
 
 
-def test_kimi_models_list() -> None:
-    """Verify Kimi model definitions."""
-    model_ids = [m.id for m in KIMI_MODELS]
-    assert "kimi-k2.5" in model_ids
-    assert "kimi-k2-0905-preview" in model_ids
-    assert "kimi-k2-0711-preview" in model_ids
-    assert "kimi-k2-turbo-preview" in model_ids
-    assert "kimi-k2-thinking" in model_ids
-    assert "kimi-k2-thinking-turbo" in model_ids
-    assert len(KIMI_MODELS) == 6
+def test_kimi_models_are_discovered_dynamically() -> None:
+    """Kimi providers should not ship hard-coded model IDs."""
+    assert PROVIDER_KIMI_CN.models == []
+    assert PROVIDER_KIMI_INTL.models == []
 
 
 @pytest.fixture
@@ -94,25 +87,18 @@ async def test_kimi_check_connection_success(monkeypatch) -> None:
     assert msg == ""
 
 
-def test_kimi_has_expected_models(isolated_secret_dir) -> None:
-    """Provider manager Kimi providers should include all built-in models."""
+def test_kimi_registered_without_hardcoded_models(isolated_secret_dir) -> None:
+    """Kimi providers should rely on API/models.dev discovery."""
     manager = ProviderManager()
     provider_cn = manager.get_provider("kimi-cn")
     provider_intl = manager.get_provider("kimi-intl")
 
     assert provider_cn is not None
     assert provider_intl is not None
-
-    for model_id in [
-        "kimi-k2.5",
-        "kimi-k2-0905-preview",
-        "kimi-k2-0711-preview",
-        "kimi-k2-turbo-preview",
-        "kimi-k2-thinking",
-        "kimi-k2-thinking-turbo",
-    ]:
-        assert provider_cn.has_model(model_id)
-        assert provider_intl.has_model(model_id)
+    assert provider_cn.models == []
+    assert provider_intl.models == []
+    assert provider_cn.support_model_discovery is True
+    assert provider_intl.support_model_discovery is True
 
 
 async def test_kimi_activate_models(
@@ -121,16 +107,27 @@ async def test_kimi_activate_models(
 ) -> None:
     """Should be able to activate both Kimi providers."""
     manager = ProviderManager()
+    provider_cn = manager.get_provider("kimi-cn")
+    provider_intl = manager.get_provider("kimi-intl")
+    assert provider_cn is not None
+    assert provider_intl is not None
 
-    await manager.activate_model("kimi-cn", "kimi-k2.5")
+    provider_cn.extra_models = [
+        ModelInfo(id="kimi-discovered", name="kimi-discovered"),
+    ]
+    provider_intl.extra_models = [
+        ModelInfo(id="kimi-thinking-discovered", name="kimi-thinking-discovered"),
+    ]
+
+    await manager.activate_model("kimi-cn", "kimi-discovered")
     assert manager.active_model is not None
     assert manager.active_model.provider_id == "kimi-cn"
-    assert manager.active_model.model == "kimi-k2.5"
+    assert manager.active_model.model == "kimi-discovered"
 
-    await manager.activate_model("kimi-intl", "kimi-k2-thinking")
+    await manager.activate_model("kimi-intl", "kimi-thinking-discovered")
     assert manager.active_model is not None
     assert manager.active_model.provider_id == "kimi-intl"
-    assert manager.active_model.model == "kimi-k2-thinking"
+    assert manager.active_model.model == "kimi-thinking-discovered"
 
 
 def test_kimi_codingplan_provider_config() -> None:
@@ -146,14 +143,9 @@ def test_kimi_codingplan_provider_config() -> None:
     assert PROVIDER_KIMI_CODINGPLAN.support_connection_check is False
 
 
-def test_kimi_codingplan_models() -> None:
-    """Verify Kimi Coding Plan model list."""
-    model_ids = [m.id for m in KIMI_CODINGPLAN_MODELS]
-    assert "kimi-for-coding" in model_ids
-    assert len(KIMI_CODINGPLAN_MODELS) == 1
-    model = KIMI_CODINGPLAN_MODELS[0]
-    assert model.supports_image is False
-    assert model.supports_video is False
+def test_kimi_codingplan_models_are_discovered_dynamically() -> None:
+    """Kimi Coding Plan should not ship hard-coded model IDs."""
+    assert PROVIDER_KIMI_CODINGPLAN.models == []
 
 
 def test_kimi_codingplan_registered(isolated_secret_dir) -> None:
@@ -161,7 +153,8 @@ def test_kimi_codingplan_registered(isolated_secret_dir) -> None:
     manager = ProviderManager()
     provider = manager.get_provider("kimi-codingplan")
     assert provider is not None
-    assert provider.has_model("kimi-for-coding")
+    assert provider.models == []
+    assert provider.support_model_discovery is True
 
 
 def test_kimi_provider_group_meta() -> None:

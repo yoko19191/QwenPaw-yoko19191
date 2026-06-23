@@ -44,8 +44,10 @@ _PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
     "minimax-cn": ("minimax-cn",),
     "mimo-tokenplan": ("xiaomi-token-plan-cn",),
     "modelscope": ("modelscope",),
+    "opencode": ("opencode", "opencode-go"),
     "openai": ("openai",),
     "openrouter": ("openrouter",),
+    "kilo": ("kilo",),
     "siliconflow-cn": ("siliconflow-cn",),
     "siliconflow-intl": ("siliconflow",),
     "zhipu-cn": ("zhipuai",),
@@ -218,6 +220,70 @@ def _apply_metadata(model: ModelInfo, metadata: Mapping[str, Any]) -> ModelInfo:
     return enriched
 
 
+def _is_free_from_cost(cost: Any) -> bool:
+    if not isinstance(cost, Mapping):
+        return False
+    numeric_values: list[float] = []
+    for value in cost.values():
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, (int, float)):
+            numeric_values.append(float(value))
+    return bool(numeric_values) and all(value == 0 for value in numeric_values)
+
+
+def _metadata_to_model_info(
+    key: str,
+    metadata: Mapping[str, Any],
+) -> ModelInfo | None:
+    raw_id = metadata.get("id")
+    model_id = str(raw_id if isinstance(raw_id, str) else key).strip()
+    if not model_id:
+        return None
+
+    raw_name = metadata.get("name")
+    name = str(raw_name if isinstance(raw_name, str) else model_id).strip()
+    model = ModelInfo(
+        id=model_id,
+        name=name or model_id,
+        is_free=_is_free_from_cost(metadata.get("cost")),
+    )
+    return _apply_metadata(model, metadata)
+
+
+def discover_models_dev_models(
+    provider: ProviderInfo,
+    catalog: Mapping[str, Any],
+) -> list[ModelInfo]:
+    """Build model candidates for a provider directly from models.dev."""
+    provider_keys = list(_iter_provider_keys(provider, catalog))
+    if not provider_keys:
+        return []
+
+    models: list[ModelInfo] = []
+    seen: set[str] = set()
+    for provider_key in provider_keys:
+        entry = catalog.get(provider_key)
+        if not isinstance(entry, Mapping):
+            continue
+        provider_models = entry.get("models")
+        if not isinstance(provider_models, Mapping):
+            continue
+        for key, metadata in provider_models.items():
+            if not isinstance(metadata, Mapping):
+                continue
+            model = _metadata_to_model_info(str(key), metadata)
+            if model is None:
+                continue
+            dedupe_key = model.id.strip()
+            if not dedupe_key or dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            models.append(model)
+
+    return sorted(models, key=lambda item: item.id.casefold())
+
+
 async def fetch_models_dev_catalog(timeout: float = 3.0) -> Mapping[str, Any]:
     """Fetch and cache the models.dev provider catalog."""
     global _catalog_cache, _catalog_cache_at  # pylint: disable=global-statement
@@ -282,6 +348,37 @@ def apply_models_dev_metadata(
     return enriched_models
 
 
+def merge_models_dev_discovery(
+    provider: ProviderInfo,
+    provider_api_models: list[ModelInfo],
+    catalog: Mapping[str, Any],
+) -> list[ModelInfo]:
+    """Merge provider API models with models.dev candidates.
+
+    Provider API rows win for duplicate IDs because they reflect the current
+    endpoint/account. models.dev adds metadata and fills providers whose model
+    list API is unavailable.
+    """
+    api_models = apply_models_dev_metadata(
+        provider,
+        provider_api_models,
+        catalog,
+    )
+    models_dev_models = discover_models_dev_models(provider, catalog)
+    if not api_models:
+        return models_dev_models
+
+    merged = list(api_models)
+    seen = {model.id.strip() for model in merged if model.id.strip()}
+    for model in models_dev_models:
+        model_id = model.id.strip()
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        merged.append(model)
+    return merged
+
+
 async def enrich_models_with_models_dev_metadata(
     provider: ProviderInfo,
     models: list[ModelInfo],
@@ -300,3 +397,24 @@ async def enrich_models_with_models_dev_metadata(
             exc,
         )
         return models
+
+
+async def discover_models_with_models_dev_fallback(
+    provider: ProviderInfo,
+    provider_api_models: list[ModelInfo],
+) -> list[ModelInfo]:
+    """Best-effort provider API + models.dev model discovery."""
+    try:
+        catalog = await fetch_models_dev_catalog()
+        return merge_models_dev_discovery(
+            provider,
+            provider_api_models,
+            catalog,
+        )
+    except Exception as exc:  # pragma: no cover - network best effort
+        logger.debug(
+            "Failed to discover provider '%s' models from models.dev: %s",
+            provider.id,
+            exc,
+        )
+        return provider_api_models

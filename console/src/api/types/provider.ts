@@ -35,8 +35,8 @@ export interface ProviderInfo {
   generate_kwargs: Record<string, unknown>;
   /** Custom HTTP headers sent with every request to this provider. */
   custom_headers?: Record<string, string>;
-  /** Authentication mode: 'api_key' (x-api-key) or 'auth_token' (Authorization: Bearer). */
-  auth_mode?: "api_key" | "auth_token";
+  /** Authentication mode for provider credentials. */
+  auth_mode?: "api_key" | "auth_token" | "codex_oauth";
   /** Whether this provider supports OAuth login. */
   supports_oauth?: boolean;
   /** Whether OAuth is currently connected. */
@@ -65,7 +65,7 @@ export interface ProviderConfigRequest {
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
   custom_headers?: Record<string, string>;
-  auth_mode?: "api_key" | "auth_token";
+  auth_mode?: "api_key" | "auth_token" | "codex_oauth";
 }
 
 export interface ModelSlotConfig {
@@ -75,6 +75,7 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
+  fallback_llms?: ModelSlotConfig[];
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
@@ -89,6 +90,7 @@ export interface ModelSlotRequest {
   model: string;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
+  fallback_llms?: ModelSlotConfig[];
 }
 
 /* ---- Custom provider CRUD ---- */
@@ -197,7 +199,7 @@ export interface TestProviderRequest {
   generate_kwargs?: Record<string, unknown>;
   include_extended?: boolean;
   custom_headers?: Record<string, string>;
-  auth_mode?: "api_key" | "auth_token";
+  auth_mode?: "api_key" | "auth_token" | "codex_oauth";
 }
 
 export interface TestModelRequest {

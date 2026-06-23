@@ -60,9 +60,14 @@ class TestEncryptDecrypt:
 
 class TestDictHelpers:
     def test_encrypt_dict_fields(self):
-        data = {"api_key": "sk-secret", "base_url": "https://api.example.com"}
+        data = {
+            "api_key": "sk-secret",
+            "oauth_refresh_token": "refresh-secret",
+            "base_url": "https://api.example.com",
+        }
         result = encrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
         assert is_encrypted(result["api_key"])
+        assert is_encrypted(result["oauth_refresh_token"])
         assert result["base_url"] == "https://api.example.com"
 
     def test_decrypt_dict_fields(self):

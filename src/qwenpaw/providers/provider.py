@@ -153,12 +153,12 @@ class ProviderInfo(BaseModel):
         default_factory=dict,
         description="Custom HTTP headers to include in every API request.",
     )
-    auth_mode: Literal["api_key", "auth_token"] = Field(
+    auth_mode: Literal["api_key", "auth_token", "codex_oauth"] = Field(
         default="api_key",
         description=(
             "Authentication mode: 'api_key' sends x-api-key header, "
-            "'auth_token' sends Authorization: Bearer header. "
-            "Only applies to Anthropic-compatible providers."
+            "'auth_token' sends Authorization: Bearer header, and "
+            "'codex_oauth' uses the ChatGPT Codex OAuth backend."
         ),
     )
     supports_oauth: bool = Field(
@@ -194,6 +194,15 @@ class ProviderInfo(BaseModel):
 
 class Provider(ProviderInfo, ABC):
     """Represents a provider instance with its configuration."""
+
+    oauth_refresh_token: str = Field(
+        default="",
+        description="OAuth refresh token stored only in encrypted provider JSON.",
+    )
+    oauth_expires_at: float | None = Field(
+        default=None,
+        description="Unix timestamp when the current OAuth access token expires.",
+    )
 
     @abstractmethod
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
@@ -283,8 +292,22 @@ class Provider(ProviderInfo, ABC):
         if "auth_mode" in config and config["auth_mode"] in (
             "api_key",
             "auth_token",
+            "codex_oauth",
         ):
             self.auth_mode = config["auth_mode"]
+        if (
+            "oauth_refresh_token" in config
+            and config["oauth_refresh_token"] is not None
+        ):
+            self.oauth_refresh_token = str(config["oauth_refresh_token"]).strip()
+        if "oauth_expires_at" in config and config["oauth_expires_at"] is not None:
+            try:
+                self.oauth_expires_at = float(config["oauth_expires_at"])
+            except (TypeError, ValueError):
+                self.oauth_expires_at = None
+        if config.get("api_key") == "":
+            self.oauth_refresh_token = ""
+            self.oauth_expires_at = None
         if "extra_models" in config and config["extra_models"] is not None:
             # Always go through model_validate with dict data to
             # avoid class-identity issues from dual module loading.
@@ -433,6 +456,11 @@ class Provider(ProviderInfo, ABC):
         # class-identity mismatches when the same module is loaded
         # via two different import paths (e.g. PYTHONPATH + pip install).
         meta = self.meta or {}
+        oauth_auth_mode = meta.get("oauth_auth_mode")
+        if oauth_auth_mode:
+            oauth_connected = bool(self.api_key and self.auth_mode == oauth_auth_mode)
+        else:
+            oauth_connected = bool(meta.get("supports_oauth") and self.api_key)
         return ProviderInfo(
             id=self.id,
             name=self.name,
@@ -453,9 +481,7 @@ class Provider(ProviderInfo, ABC):
             custom_headers=self.custom_headers,
             auth_mode=self.auth_mode,
             supports_oauth=meta.get("supports_oauth", False),
-            oauth_connected=bool(
-                meta.get("supports_oauth") and self.api_key,
-            ),
+            oauth_connected=oauth_connected,
             is_free_tier=meta.get("is_free_tier", False),
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,

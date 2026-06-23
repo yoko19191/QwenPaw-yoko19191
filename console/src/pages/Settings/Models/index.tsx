@@ -100,6 +100,8 @@ function ModelsPage() {
     setModelsModalProvider(provider);
   }, []);
 
+  const fallbackCount = activeModels?.fallback_llms?.length ?? 0;
+
   // P1: Defer search filtering to avoid blocking input responsiveness
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
@@ -311,6 +313,11 @@ function ModelsPage() {
                     <span className={styles.llmPillValue}>
                       {activeModels?.active_llm?.provider_id || "—"} /{" "}
                       {activeModels?.active_llm?.model || "—"}
+                      {fallbackCount > 0
+                        ? ` ${t("models.fallbackCount", {
+                            count: fallbackCount,
+                          })}`
+                        : ""}
                     </span>
                     <span className={styles.llmPillEdit}>
                       {t("common.edit")}
@@ -530,7 +537,7 @@ function ModelsPage() {
               footer={null}
               onCancel={() => setLlmModalOpen(false)}
               destroyOnClose
-              width={520}
+              width="min(900px, calc(100vw - 32px))"
             >
               <ModelsSection
                 providers={providers}
